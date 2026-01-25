@@ -1,0 +1,21 @@
+{
+  "name": "vilagjaro",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "@types/geojson": "^7946.0.16",
+    "typescript": "~5.9.3",
+    "vite": "^7.2.4"
+  },
+  "dependencies": {
+    "cesium": "^1.137.0",
+    "osmtogeojson": "^3.0.0-beta.5",
+    "vite-plugin-cesium": "^1.2.23"
+  }
+}
