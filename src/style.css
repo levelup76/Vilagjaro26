@@ -1,4 +1,5 @@
 :root {
+  --panel-width: 360px;
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   line-height: 1.5;
   font-weight: 400;
@@ -67,7 +68,7 @@ body {
 
 .main {
   display: grid;
-  grid-template-columns: minmax(320px, 380px) 1fr;
+  grid-template-columns: clamp(300px, var(--panel-width), 560px) 8px 1fr;
   flex: 1;
   background: radial-gradient(circle at 10% 10%, rgba(90, 215, 255, 0.18), transparent 40%),
     radial-gradient(circle at 90% 20%, rgba(255, 138, 223, 0.15), transparent 35%),
@@ -112,9 +113,19 @@ body {
 }
 
 .landing-art {
-  background: url('/hero.jpg') center / contain no-repeat;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border-radius: 1rem;
   min-height: 380px;
+}
+
+.landing-art img {
+  height: 380px;
+  width: auto;
+  max-width: 100%;
+  border-radius: 1rem;
+  display: block;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08), 0 16px 32px rgba(0, 0, 0, 0.25);
 }
 
@@ -142,6 +153,42 @@ body {
 .landing-actions .file-button {
   width: 100%;
   justify-content: center;
+}
+
+.landing-demos {
+  margin-top: 1.25rem;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.landing-demo-title {
+  margin: 0;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: rgba(248, 250, 252, 0.7);
+}
+
+.landing-demo-buttons {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.landing-demo {
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(15, 23, 42, 0.5);
+  color: #f8fafc;
+  padding: 0.6rem 1rem;
+  text-align: center;
+  font-weight: 600;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.landing-demo:hover {
+  transform: translateY(-1px);
+  border-color: rgba(56, 189, 248, 0.8);
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.35);
 }
 
 .file-button.ghost {
@@ -275,11 +322,37 @@ body {
 .map {
   position: relative;
   min-height: calc(100vh - 64px);
+  overflow: hidden;
 }
 
 #cesiumContainer {
   position: absolute;
   inset: 0;
+}
+
+body.mode-editor .map {
+  height: 65vh;
+  max-height: 70vh;
+  min-height: 360px;
+}
+
+body.mode-player .map {
+  height: calc(100vh - 64px);
+  max-height: none;
+}
+
+.splitter {
+  width: 8px;
+  cursor: col-resize;
+  background: linear-gradient(180deg, rgba(37, 99, 235, 0.1), rgba(90, 215, 255, 0.25));
+  border-left: 1px solid rgba(0, 0, 0, 0.04);
+  border-right: 1px solid rgba(255, 255, 255, 0.35);
+  transition: background 0.2s ease;
+}
+
+.splitter:hover,
+.splitter.dragging {
+  background: linear-gradient(180deg, rgba(37, 99, 235, 0.2), rgba(255, 138, 223, 0.35));
 }
 
 .view h2 {
@@ -303,12 +376,44 @@ body {
 }
 
 .form-grid input,
-.form-grid select {
+.form-grid select,
+.form-grid textarea {
   padding: 0.5rem 0.75rem;
   border-radius: 0.5rem;
   border: 1px solid #cbd5f5;
   font-size: 0.9rem;
   background: rgba(255, 255, 255, 0.9);
+}
+
+.form-grid textarea {
+  resize: vertical;
+  min-height: 72px;
+}
+
+.dataset-meta {
+  display: grid;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.dataset-meta label {
+  display: grid;
+  gap: 0.25rem;
+  color: #334155;
+}
+
+.dataset-meta input,
+.dataset-meta textarea {
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.6rem;
+  border: 1px solid #cbd5f5;
+  font-size: 0.95rem;
+  background: rgba(255, 255, 255, 0.95);
+}
+
+.dataset-meta textarea {
+  resize: vertical;
+  min-height: 72px;
 }
 
 .helper {
@@ -534,6 +639,10 @@ button:hover,
 @media (max-width: 900px) {
   .main {
     grid-template-columns: 1fr;
+  }
+
+  .splitter {
+    display: none;
   }
 
   .map {

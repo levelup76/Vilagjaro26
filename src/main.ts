@@ -43,6 +43,12 @@ type AreaRecord = {
   aliases: string[]
 }
 
+type Dataset = {
+  title?: string
+  description?: string
+  items: AreaRecord[]
+}
+
 type GameMode = 'pins' | 'select'
 
 type GameState = {
@@ -65,7 +71,9 @@ app.innerHTML = `
   <div class="app-shell">
     <section id="landing" class="landing">
       <div class="landing-card">
-        <div class="landing-art" aria-hidden="true"></div>
+        <div class="landing-art" aria-hidden="true">
+          <img src="/hero.jpg" alt="Világjáró illusztráció" />
+        </div>
         <div class="landing-copy">
           <p class="eyebrow">Felfedezés • Játék</p>
           <h1>Világjáró</h1>
@@ -80,6 +88,13 @@ app.innerHTML = `
               Játék
               <input id="landing-play" type="file" accept="application/json" />
             </label>
+          </div>
+          <div class="landing-demos">
+            <p class="landing-demo-title">Demók</p>
+            <div class="landing-demo-buttons">
+              <button class="landing-demo" data-demo="/games/kozepeuropafolyoivizei.json">Közép-Európa folyói vizei</button>
+              <button class="landing-demo" data-demo="/games/kozepeuropavarosai.json">Közép-Európa városai</button>
+            </div>
           </div>
         </div>
       </div>
@@ -143,6 +158,7 @@ app.innerHTML = `
               </div>
               <div class="button-row">
                 <button id="add-record" class="primary">Hozzáadás</button>
+                <button id="cancel-edit" class="hidden">Mégse</button>
                 <button id="clear-records">Lista törlése</button>
               </div>
             </div>
@@ -175,6 +191,16 @@ app.innerHTML = `
                   <p class="section-subtitle">Kattints a megjelenítéshez vagy töröld, ha nem kell. A JSON-t bármikor elmentheted.</p>
                 </div>
                 <div class="pill pill-ghost"><span id="record-count">0</span> tétel</div>
+              </div>
+              <div class="dataset-meta">
+                <label>
+                  Feladatsor címe
+                  <input id="dataset-title" type="text" placeholder="Pl.: Európa fővárosai" />
+                </label>
+                <label>
+                  Feladatsor leírása
+                  <textarea id="dataset-description" rows="2" placeholder="Pl.: Európai fővárosok gyakorló csomag"></textarea>
+                </label>
               </div>
               <ul id="record-list" class="record-list"></ul>
               <div class="button-row">
@@ -210,6 +236,7 @@ app.innerHTML = `
           </div>
         </section>
       </section>
+      <div id="splitter" class="splitter" role="separator" aria-label="Panel átméretezése"></div>
       <section class="map">
         <div id="cesiumContainer"></div>
       </section>
@@ -236,6 +263,8 @@ const viewer = new Viewer('cesiumContainer', {
 
 viewer.scene.morphTo2D(0)
 viewer.scene.screenSpaceCameraController.enableTilt = false
+viewer.scene.screenSpaceCameraController.minimumPitch = -Math.PI / 2
+viewer.scene.screenSpaceCameraController.maximumPitch = -Math.PI / 2
 
 viewer.imageryLayers.removeAll()
 viewer.imageryLayers.addImageryProvider(
@@ -261,8 +290,6 @@ const loadCountryBorders = async () => {
   }
 }
 
-loadCountryBorders()
-
 const navEditor = document.querySelector<HTMLButtonElement>('#nav-editor')
 const navPlayer = document.querySelector<HTMLButtonElement>('#nav-player')
 const editorView = document.querySelector<HTMLDivElement>('#editor-view')
@@ -271,14 +298,20 @@ const landing = document.querySelector<HTMLDivElement>('#landing')
 const landingNew = document.querySelector<HTMLButtonElement>('#landing-new')
 const landingContinueInput = document.querySelector<HTMLInputElement>('#landing-continue')
 const landingPlayInput = document.querySelector<HTMLInputElement>('#landing-play')
+const landingDemoButtons = Array.from(
+  document.querySelectorAll<HTMLButtonElement>('.landing-demo')
+)
 
 const recordName = document.querySelector<HTMLInputElement>('#record-name')
 const recordCustomName = document.querySelector<HTMLInputElement>('#record-custom-name')
+const datasetTitleInput = document.querySelector<HTMLInputElement>('#dataset-title')
+const datasetDescriptionInput = document.querySelector<HTMLTextAreaElement>('#dataset-description')
 const recordFormat = document.querySelector<HTMLSelectElement>('#record-format')
 const recordUrl = document.querySelector<HTMLInputElement>('#record-url')
 const recordFile = document.querySelector<HTMLInputElement>('#record-file')
 const recordTolerance = document.querySelector<HTMLInputElement>('#record-tolerance')
 const addRecordButton = document.querySelector<HTMLButtonElement>('#add-record')
+const cancelEditButton = document.querySelector<HTMLButtonElement>('#cancel-edit')
 const clearRecordsButton = document.querySelector<HTMLButtonElement>('#clear-records')
 const recordList = document.querySelector<HTMLUListElement>('#record-list')
 const recordCount = document.querySelector<HTMLSpanElement>('#record-count')
@@ -286,6 +319,8 @@ const saveJsonButton = document.querySelector<HTMLButtonElement>('#save-json')
 const loadJsonInput = document.querySelector<HTMLInputElement>('#load-json')
 const osmRelationIdInput = document.querySelector<HTMLInputElement>('#osm-relation-id')
 const osmRelationImportButton = document.querySelector<HTMLButtonElement>('#osm-relation-import')
+const splitter = document.querySelector<HTMLDivElement>('#splitter')
+const panelShell = document.querySelector<HTMLElement>('#panel')
 
 const hudPinsButton = document.querySelector<HTMLButtonElement>('#hud-pins')
 const hudSelectButton = document.querySelector<HTMLButtonElement>('#hud-select')
@@ -296,6 +331,9 @@ const optionList = document.querySelector<HTMLDivElement>('#option-list')
 const statusExtra = document.querySelector<HTMLDivElement>('#status-extra')
 
 let db: AreaRecord[] = []
+let datasetTitle = ''
+let datasetDescription = ''
+let editingId: string | null = null
 const dataSources = new Map<string, DataSource>()
 let borderDataSource: DataSource | null = null
 const recordCenters = new Map<string, Cartographic>()
@@ -331,6 +369,43 @@ const postgameSwitch = postgame.querySelector<HTMLButtonElement>('#postgame-swit
 const hidePostgame = () => postgame.classList.add('hidden')
 const showPostgame = () => postgame.classList.remove('hidden')
 
+const setupSplitter = () => {
+  if (!splitter || !panelShell) return
+  const min = 300
+  const max = 560
+  let startX = 0
+  let startWidth = 360
+  let dragging = false
+
+  const onMove = (event: MouseEvent) => {
+    if (!dragging) return
+    const delta = event.clientX - startX
+    const next = Math.min(max, Math.max(min, startWidth + delta))
+    document.documentElement.style.setProperty('--panel-width', `${next}px`)
+  }
+
+  const onUp = () => {
+    dragging = false
+    splitter.classList.remove('dragging')
+    window.removeEventListener('mousemove', onMove)
+    window.removeEventListener('mouseup', onUp)
+  }
+
+  splitter.addEventListener('mousedown', (event) => {
+    const rect = panelShell.getBoundingClientRect()
+    startX = event.clientX
+    startWidth = rect.width
+    dragging = true
+    splitter.classList.add('dragging')
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    event.preventDefault()
+  })
+}
+
+setupSplitter()
+loadCountryBorders()
+
 
 const updateNav = (mode: 'editor' | 'player') => {
   if (!navEditor || !navPlayer || !editorView || !playerView) return
@@ -340,6 +415,8 @@ const updateNav = (mode: 'editor' | 'player') => {
   editorView.classList.toggle('hidden', !isEditor)
   playerView.classList.toggle('hidden', isEditor)
   landing?.classList.add('hidden')
+  document.body.classList.toggle('mode-editor', isEditor)
+  document.body.classList.toggle('mode-player', !isEditor)
 }
 
 const refreshList = () => {
@@ -358,6 +435,7 @@ const refreshList = () => {
         <small>${subtitleParts.join(' · ')}</small>
       </div>
       <div class="record-actions">
+        <button data-action="edit" data-id="${record.id}">Szerkesztés</button>
         <button data-action="show" data-id="${record.id}">Megjelenítés</button>
         <button data-action="remove" data-id="${record.id}">Törlés</button>
       </div>
@@ -368,34 +446,50 @@ const refreshList = () => {
 
 const createId = () => crypto.randomUUID()
 
-const parseRecords = (text: string) => {
-  const parsed = JSON.parse(text) as Array<Partial<AreaRecord> & { kml?: string; kmlType?: DataType }>
-  if (!Array.isArray(parsed)) throw new Error('Invalid JSON')
-  return parsed
-    .map((item) => {
-      const data = item.data ?? item.kml ?? ''
-      const dataType =
-        item.dataType ??
-        item.kmlType ??
-        (/^https?:\/\//.test(data) ? 'url' : 'text')
-      const format = item.format ?? 'kml'
-      const toleranceKm = typeof item.toleranceKm === 'number' ? item.toleranceKm : undefined
-      return {
-        id: item.id ?? createId(),
-        name: item.name ?? 'Ismeretlen',
-        customName: item.customName,
-        toleranceKm,
-        data,
-        dataType,
-        format,
-        aliases: Array.isArray(item.aliases) ? item.aliases : []
-      } as AreaRecord
-    })
-    .filter((item) => item.name && item.data)
+const parseRecords = (text: string): Dataset => {
+  const parsed = JSON.parse(text) as
+    | Array<Partial<AreaRecord> & { kml?: string; kmlType?: DataType }>
+    | { title?: string; description?: string; items?: Array<Partial<AreaRecord> & { kml?: string; kmlType?: DataType }> }
+
+  const toRecord = (item: Partial<AreaRecord> & { kml?: string; kmlType?: DataType }) => {
+    const data = item.data ?? item.kml ?? ''
+    const dataType =
+      item.dataType ??
+      item.kmlType ??
+      (/^https?:\/\//.test(data) ? 'url' : 'text')
+    const format = item.format ?? 'kml'
+    const toleranceKm = typeof item.toleranceKm === 'number' ? item.toleranceKm : undefined
+    return {
+      id: item.id ?? createId(),
+      name: item.name ?? 'Ismeretlen',
+      customName: item.customName,
+      toleranceKm,
+      data,
+      dataType,
+      format,
+      aliases: Array.isArray(item.aliases) ? item.aliases : []
+    } as AreaRecord
+  }
+
+  if (Array.isArray(parsed)) {
+    const items = parsed.map(toRecord).filter((item) => item.name && item.data)
+    return { items }
+  }
+
+  if (parsed && Array.isArray(parsed.items)) {
+    const items = parsed.items.map(toRecord).filter((item) => item.name && item.data)
+    return { title: parsed.title, description: parsed.description, items }
+  }
+
+  throw new Error('Invalid JSON')
 }
 
-const applyRecords = (records: AreaRecord[]) => {
-  db = records
+const applyDataset = (dataset: Dataset) => {
+  db = dataset.items
+  datasetTitle = dataset.title ?? ''
+  datasetDescription = dataset.description ?? ''
+  if (datasetTitleInput) datasetTitleInput.value = datasetTitle
+  if (datasetDescriptionInput) datasetDescriptionInput.value = datasetDescription
   resetDataSources()
   dataSources.clear()
   recordCenters.clear()
@@ -563,6 +657,58 @@ updateHudButtons(game.mode)
 
 const displayName = (record: AreaRecord) => record.customName?.trim() || record.name
 
+const syncDatasetMeta = () => {
+  datasetTitle = datasetTitleInput?.value.trim() ?? ''
+  datasetDescription = datasetDescriptionInput?.value.trim() ?? ''
+}
+
+datasetTitleInput?.addEventListener('input', syncDatasetMeta)
+datasetDescriptionInput?.addEventListener('input', syncDatasetMeta)
+
+const soundFiles = {
+  start: '/sounds/start.mp3',
+  correct: '/sounds/correct.mp3',
+  wrong: '/sounds/wrong.mp3',
+  streak: '/sounds/streak.mp3',
+  click: '/sounds/click.mp3',
+  nextTask: '/sounds/nextTask.mp3',
+  end: '/sounds/end.mp3'
+} as const
+
+type SoundName = keyof typeof soundFiles
+
+const soundCache = new Map<SoundName, HTMLAudioElement>()
+
+const playSound = (name: SoundName, volume = 1) => {
+  const src = soundFiles[name]
+  if (!src) return
+  let audio = soundCache.get(name)
+  if (!audio) {
+    audio = new Audio(src)
+    audio.preload = 'auto'
+    soundCache.set(name, audio)
+  }
+  try {
+    audio.currentTime = 0
+    audio.volume = volume
+    void audio.play()
+  } catch {
+    // ignore playback failures (e.g., no user gesture)
+  }
+}
+
+const resetForm = () => {
+  if (recordName) recordName.value = ''
+  if (recordCustomName) recordCustomName.value = ''
+  if (recordUrl) recordUrl.value = ''
+  if (recordFile) recordFile.value = ''
+  if (recordTolerance) recordTolerance.value = ''
+  editingId = null
+  if (addRecordButton) addRecordButton.textContent = 'Hozzáadás'
+  cancelEditButton?.classList.add('hidden')
+  if (recordFormat) recordFormat.value = 'kml'
+}
+
 const getToleranceKm = (record: AreaRecord) => record.toleranceKm && record.toleranceKm > 0
   ? record.toleranceKm
   : 50
@@ -610,6 +756,7 @@ const startGame = async (mode: GameMode) => {
   clearArrow()
   hidePins()
   clearGuessPin()
+  playSound('start', 0.9)
   setFeedback('Játék indítva.', 'neutral')
   hidePostgame()
   await updateTaskUI()
@@ -618,10 +765,15 @@ const startGame = async (mode: GameMode) => {
 const handleSelectCorrect = async () => {
   game.streak += 1
   flashActive(Color.LIME)
-  playTone(880)
+  if (game.streak >= 3 && game.streak < 7) {
+    playSound('streak', 0.7)
+  } else {
+    playSound('correct')
+  }
   if (game.streak >= 7) {
     setFeedback('Szuper! 7 egymás utáni helyes válasz. Játék vége.', 'good')
     game.running = false
+    playSound('end')
     showPostgame()
     return
   }
@@ -641,7 +793,7 @@ const handleSelectIncorrect = async () => {
   game.queue = buildQueue(7)
   game.index = 0
   flashActive(Color.RED)
-  playTone(220)
+  playSound('wrong')
   if (target) {
     setFeedback(`Nem jó. Helyes: ${displayName(target)}. Új feladatsor indul.`, 'bad')
   } else {
@@ -675,11 +827,11 @@ const handlePinsAttempt = async (
   if (success) {
     clearArrow()
     game.found += 1
-    playTone(880)
+    playSound('correct')
     setFeedback('Talált!', 'good')
     advancePinsQueue()
   } else {
-    playTone(220)
+    playSound('wrong')
     if (clickPoint && targetPoint && typeof distance === 'number') {
       showArrow(clickPoint, targetPoint, distance)
       const brng = bearingDegrees(clickPoint, targetPoint)
@@ -693,6 +845,7 @@ const handlePinsAttempt = async (
   if (game.attemptsLeft <= 0) {
     game.running = false
     setFeedback(`Vége! Találatok: ${game.found} / 12`, game.found >= 6 ? 'good' : 'neutral')
+    playSound('end')
     showPostgame()
     await updateTaskUI()
     return
@@ -898,22 +1051,6 @@ const setGuessPin = (position: Cartographic, text: string) => {
   }) as Entity
 }
 
-const playTone = (frequency: number, duration = 160) => {
-  const AudioCtx = window.AudioContext ||
-    (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
-  if (!AudioCtx) return
-  const audioContext = new AudioCtx()
-  const oscillator = audioContext.createOscillator()
-  const gain = audioContext.createGain()
-  oscillator.type = 'sine'
-  oscillator.frequency.value = frequency
-  gain.gain.value = 0.08
-  oscillator.connect(gain)
-  gain.connect(audioContext.destination)
-  oscillator.start()
-  oscillator.stop(audioContext.currentTime + duration / 1000)
-}
-
 const bearingDegrees = (from: Cartographic, to: Cartographic) => {
   const dLon = to.longitude - from.longitude
   const y = Math.sin(dLon) * Math.cos(to.latitude)
@@ -1020,8 +1157,8 @@ landingContinueInput?.addEventListener('change', async () => {
   if (!file) return
   try {
     const text = await file.text()
-    const records = parseRecords(text)
-    applyRecords(records)
+    const dataset = parseRecords(text)
+    applyDataset(dataset)
     setFeedback('Feladatsor betöltve.', 'good')
     updateNav('editor')
   } catch {
@@ -1036,8 +1173,8 @@ landingPlayInput?.addEventListener('change', async () => {
   if (!file) return
   try {
     const text = await file.text()
-    const records = parseRecords(text)
-    applyRecords(records)
+    const dataset = parseRecords(text)
+    applyDataset(dataset)
     setFeedback('Feladatsor betöltve. Indul a Gombostűk mód!', 'good')
     updateNav('player')
     await startGame('pins')
@@ -1046,6 +1183,25 @@ landingPlayInput?.addEventListener('change', async () => {
   } finally {
     landingPlayInput.value = ''
   }
+})
+
+landingDemoButtons.forEach((button) => {
+  button.addEventListener('click', async () => {
+    const path = button.dataset.demo
+    if (!path) return
+    try {
+      const response = await fetch(path)
+      if (!response.ok) throw new Error('Failed to load demo')
+      const text = await response.text()
+      const dataset = parseRecords(text)
+      applyDataset(dataset)
+      setFeedback('Demo betöltve. Indul a Gombostűk mód!', 'good')
+      updateNav('player')
+      await startGame('pins')
+    } catch {
+      setFeedback('Nem sikerült betölteni a demót.', 'bad')
+    }
+  })
 })
 
 hudPinsButton?.addEventListener('click', () => startGame('pins'))
@@ -1070,65 +1226,122 @@ addRecordButton?.addEventListener('click', async () => {
   }
 
   const customName = recordCustomName?.value.trim()
+  datasetTitle = datasetTitleInput?.value.trim() ?? ''
+  datasetDescription = datasetDescriptionInput?.value.trim() ?? ''
   const toleranceValue = Number(recordTolerance?.value)
   const toleranceKm = Number.isFinite(toleranceValue) && toleranceValue > 0 ? toleranceValue : undefined
 
   const file = recordFile?.files?.[0]
   const url = recordUrl?.value.trim()
   const format = (recordFormat?.value as DataFormat) ?? 'kml'
+  const isEditing = Boolean(editingId)
 
-  if (!file && !url) {
+  if (!isEditing && !file && !url) {
     setFeedback('Adj meg URL-t vagy válassz fájlt.', 'bad')
     return
   }
 
-  let record: AreaRecord
-  if (file) {
-    const text = await file.text()
-    if (format === 'geojson') {
-      try {
-        JSON.parse(text)
-      } catch {
-        setFeedback('Érvénytelen GeoJSON fájl.', 'bad')
-        return
+  if (editingId) {
+    const record = db.find((item) => item.id === editingId)
+    if (!record) {
+      setFeedback('Nem található a módosítandó tétel.', 'bad')
+      resetForm()
+      return
+    }
+    record.name = name
+    record.customName = customName
+    record.toleranceKm = toleranceKm
+    let dataChanged = false
+
+    if (file) {
+      const text = await file.text()
+      if (format === 'geojson') {
+        try {
+          JSON.parse(text)
+        } catch {
+          setFeedback('Érvénytelen GeoJSON fájl.', 'bad')
+          return
+        }
+      }
+      record.data = text
+      record.dataType = 'text'
+      record.format = format
+      dataChanged = true
+    } else if (url) {
+      record.data = url
+      record.dataType = 'url'
+      record.format = format
+      dataChanged = true
+    }
+
+    if (dataChanged) {
+      const source = dataSources.get(record.id)
+      if (source) viewer.dataSources.remove(source)
+      dataSources.delete(record.id)
+      recordCenters.delete(record.id)
+      recordRadii.delete(record.id)
+      const pin = pinEntities.get(record.id)
+      if (pin) viewer.entities.remove(pin)
+      pinEntities.delete(record.id)
+      await loadDataSource(record)
+    } else {
+      const source = dataSources.get(record.id)
+      if (source) source.name = record.name
+    }
+    refreshList()
+    setFeedback('Frissítve.', 'good')
+    resetForm()
+  } else {
+    let record: AreaRecord
+    if (file) {
+      const text = await file.text()
+      if (format === 'geojson') {
+        try {
+          JSON.parse(text)
+        } catch {
+          setFeedback('Érvénytelen GeoJSON fájl.', 'bad')
+          return
+        }
+      }
+      record = {
+        id: createId(),
+        name,
+        customName,
+        toleranceKm,
+        data: text,
+        dataType: 'text',
+        format,
+        aliases: []
+      }
+    } else {
+      record = {
+        id: createId(),
+        name,
+        customName,
+        toleranceKm,
+        data: url!,
+        dataType: 'url',
+        format,
+        aliases: []
       }
     }
-    record = {
-      id: createId(),
-      name,
-      customName,
-      toleranceKm,
-      data: text,
-      dataType: 'text',
-      format,
-      aliases: []
-    }
-  } else {
-    record = {
-      id: createId(),
-      name,
-      customName,
-      toleranceKm,
-      data: url!,
-      dataType: 'url',
-      format,
-      aliases: []
-    }
+
+    db.push(record)
+    await loadDataSource(record, { zoom: true })
+    refreshList()
+    resetForm()
   }
+})
 
-  db.push(record)
-  await loadDataSource(record, { zoom: true })
-  refreshList()
-
-  if (recordName) recordName.value = ''
-  if (recordCustomName) recordCustomName.value = ''
-  if (recordUrl) recordUrl.value = ''
-  if (recordFile) recordFile.value = ''
-  if (recordTolerance) recordTolerance.value = ''
+cancelEditButton?.addEventListener('click', () => {
+  resetForm()
+  setFeedback('Szerkesztés megszakítva.', 'neutral')
 })
 
 clearRecordsButton?.addEventListener('click', () => {
   db = []
+  datasetTitle = ''
+  datasetDescription = ''
   resetDataSources()
   dataSources.clear()
   recordCenters.clear()
@@ -1136,6 +1349,9 @@ clearRecordsButton?.addEventListener('click', () => {
   pinEntities.forEach((entity) => viewer.entities.remove(entity))
   pinEntities.clear()
   clearGuessPin()
+  resetForm()
+  if (datasetTitleInput) datasetTitleInput.value = ''
+  if (datasetDescriptionInput) datasetDescriptionInput.value = ''
   refreshList()
   setFeedback('Lista törölve.', 'neutral')
 })
@@ -1159,16 +1375,36 @@ recordList?.addEventListener('click', async (event) => {
     const pin = pinEntities.get(id)
     if (pin) viewer.entities.remove(pin)
     pinEntities.delete(id)
+    if (editingId === id) resetForm()
     refreshList()
   }
 
   if (action === 'show') {
     await loadDataSource(record, { zoom: true })
   }
+
+  if (action === 'edit') {
+    editingId = id
+    if (recordName) recordName.value = record.name
+    if (recordCustomName) recordCustomName.value = record.customName ?? ''
+    if (recordFormat) recordFormat.value = record.format
+    if (recordUrl) recordUrl.value = record.dataType === 'url' ? record.data : ''
+    if (recordFile) recordFile.value = ''
+    if (recordTolerance) recordTolerance.value = record.toleranceKm?.toString() ?? ''
+    if (addRecordButton) addRecordButton.textContent = 'Mentés'
+    cancelEditButton?.classList.remove('hidden')
+    setFeedback('Szerkesztés mód: módosítsd és ments.', 'neutral')
+  }
 })
 
 saveJsonButton?.addEventListener('click', () => {
-  const blob = new Blob([JSON.stringify(db, null, 2)], { type: 'application/json' })
+  syncDatasetMeta()
+  const payload: Dataset = {
+    title: datasetTitle || undefined,
+    description: datasetDescription || undefined,
+    items: db
+  }
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
   const link = document.createElement('a')
   link.href = URL.createObjectURL(blob)
   link.download = 'vilagjaro-db.json'
@@ -1181,8 +1417,8 @@ loadJsonInput?.addEventListener('change', async () => {
   if (!file) return
   try {
     const text = await file.text()
-    const records = parseRecords(text)
-    applyRecords(records)
+    const dataset = parseRecords(text)
+    applyDataset(dataset)
     setFeedback('JSON betöltve.', 'good')
   } catch {
     setFeedback('Nem sikerült betölteni a JSON fájlt.', 'bad')
