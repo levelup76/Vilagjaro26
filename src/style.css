@@ -282,10 +282,16 @@ body {
   display: grid;
   place-items: center;
   padding: 1.5rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .landing.hidden {
   display: none;
+}
+
+body.landing-open {
+  overflow: hidden;
 }
 
 .landing-card {

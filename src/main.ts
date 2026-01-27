@@ -76,8 +76,6 @@ app.innerHTML = `
           <img src="/hero.jpg" alt="Világjáró illusztráció" />
         </div>
         <div class="landing-copy">
-          <p class="eyebrow">Felfedezés • Játék</p>
-          <h1>Világjáró</h1>
           <p class="landing-subtitle">Válassz feladatsort, nézd meg a térképet, és induljon a játék!</p>
           <div class="landing-actions">
             <button id="landing-new" class="primary">Új feladatsor</button>
@@ -295,6 +293,13 @@ const navPlayer = document.querySelector<HTMLButtonElement>('#nav-player')
 const editorView = document.querySelector<HTMLDivElement>('#editor-view')
 const playerView = document.querySelector<HTMLDivElement>('#player-view')
 const landing = document.querySelector<HTMLDivElement>('#landing')
+const setLandingVisible = (visible: boolean) => {
+  landing?.classList.toggle('hidden', !visible)
+  document.body.classList.toggle('landing-open', visible)
+}
+
+setLandingVisible(true)
+
 const landingNew = document.querySelector<HTMLButtonElement>('#landing-new')
 const landingContinueInput = document.querySelector<HTMLInputElement>('#landing-continue')
 const landingPlayInput = document.querySelector<HTMLInputElement>('#landing-play')
@@ -436,7 +441,7 @@ const updateNav = (mode: 'editor' | 'player') => {
   navPlayer.classList.toggle('active', !isEditor)
   editorView.classList.toggle('hidden', !isEditor)
   playerView.classList.toggle('hidden', isEditor)
-  landing?.classList.add('hidden')
+  setLandingVisible(false)
   document.body.classList.toggle('mode-editor', isEditor)
   document.body.classList.toggle('mode-player', !isEditor)
   setGameRunning(false)
@@ -1333,7 +1338,7 @@ gameExitButton?.addEventListener('click', () => {
   clearArrow()
   hidePins()
   if (feedback) feedback.textContent = ' '
-  landing?.classList.remove('hidden')
+  setLandingVisible(true)
 })
 
 hudPinsButton?.addEventListener('click', () => startGame('pins'))
