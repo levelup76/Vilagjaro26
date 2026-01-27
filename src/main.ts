@@ -17,6 +17,7 @@ import {
   SceneMode,
   UrlTemplateImageryProvider,
   HeadingPitchRange,
+  BoundingSphere,
   EllipsoidGeodesic,
   PolylineArrowMaterialProperty,
   JulianDate,
@@ -105,6 +106,20 @@ app.innerHTML = `
         <button id="nav-editor" class="nav-button active">Szerkesztő</button>
         <button id="nav-player" class="nav-button">Lejátszó</button>
       </nav>
+      <div id="player-bar" class="player-bar">
+        <div class="player-info">
+          <div class="player-task">Feladat: <span id="task-label">-</span></div>
+          <div class="player-meta">
+            <div id="status-extra" class="player-streak"></div>
+            <div id="feedback" class="feedback player-feedback"> </div>
+          </div>
+        </div>
+        <div class="player-actions">
+          <button id="hud-pins" class="hud-button primary">Gombostűk</button>
+          <button id="hud-select" class="hud-button">Nevezd meg!</button>
+        </div>
+        <button id="game-exit" class="game-exit" aria-label="Vissza a főoldalra">×</button>
+      </div>
     </header>
     <main class="main">
       <section id="panel" class="panel">
@@ -215,21 +230,6 @@ app.innerHTML = `
         </section>
 
         <section id="player-view" class="view hidden">
-          <div class="player-hud">
-            <div>
-              <p class="eyebrow">Lejátszó</p>
-              <h2>Válassz módot</h2>
-            </div>
-            <div class="hud-actions">
-              <button id="hud-pins" class="hud-button primary">Gombostűk</button>
-              <button id="hud-select" class="hud-button">Nevezd meg!</button>
-            </div>
-          </div>
-          <div class="status">
-            <div>Feladat: <span id="task-label">-</span></div>
-            <div id="status-extra"></div>
-            <div id="feedback" class="feedback"> </div>
-          </div>
           <div id="select-mode" class="select-mode hidden">
             <h3>Válaszlehetőségek</h3>
             <div id="option-list" class="option-list"></div>
@@ -324,6 +324,7 @@ const panelShell = document.querySelector<HTMLElement>('#panel')
 
 const hudPinsButton = document.querySelector<HTMLButtonElement>('#hud-pins')
 const hudSelectButton = document.querySelector<HTMLButtonElement>('#hud-select')
+const gameExitButton = document.querySelector<HTMLButtonElement>('#game-exit')
 const taskLabel = document.querySelector<HTMLSpanElement>('#task-label')
 const feedback = document.querySelector<HTMLDivElement>('#feedback')
 const selectMode = document.querySelector<HTMLDivElement>('#select-mode')
@@ -358,16 +359,37 @@ const handler = new ScreenSpaceEventHandler(viewer.scene.canvas)
 const postgame = document.createElement('div')
 postgame.className = 'postgame hidden'
 postgame.innerHTML = `
-  <button id="postgame-restart" class="primary">Ugyanez újra</button>
-  <button id="postgame-switch">Módváltás</button>
+  <div class="postgame-copy">
+    <h3 id="postgame-title"></h3>
+    <p id="postgame-result"></p>
+  </div>
+  <div class="postgame-actions">
+    <button id="postgame-restart" class="primary">Újra játszom</button>
+    <button id="postgame-switch">Másik játékmód</button>
+  </div>
 `
 app.appendChild(postgame)
 
+const postgameTitle = postgame.querySelector<HTMLHeadingElement>('#postgame-title')
+const postgameResult = postgame.querySelector<HTMLParagraphElement>('#postgame-result')
 const postgameRestart = postgame.querySelector<HTMLButtonElement>('#postgame-restart')
 const postgameSwitch = postgame.querySelector<HTMLButtonElement>('#postgame-switch')
 
-const hidePostgame = () => postgame.classList.add('hidden')
-const showPostgame = () => postgame.classList.remove('hidden')
+const setPostgameVisible = (visible: boolean) => {
+  document.body.classList.toggle('postgame-visible', visible)
+}
+
+const hidePostgame = () => {
+  postgame.classList.add('hidden')
+  setPostgameVisible(false)
+}
+
+const showPostgame = (title: string, result: string) => {
+  if (postgameTitle) postgameTitle.textContent = title
+  if (postgameResult) postgameResult.textContent = result
+  postgame.classList.remove('hidden')
+  setPostgameVisible(true)
+}
 
 const setupSplitter = () => {
   if (!splitter || !panelShell) return
@@ -417,6 +439,7 @@ const updateNav = (mode: 'editor' | 'player') => {
   landing?.classList.add('hidden')
   document.body.classList.toggle('mode-editor', isEditor)
   document.body.classList.toggle('mode-player', !isEditor)
+  setGameRunning(false)
 }
 
 const refreshList = () => {
@@ -621,14 +644,19 @@ const resetDataSources = () => {
   }
 }
 
-const buildQueue = (length: number, keepLastFailed = true) => {
+const buildQueue = (length: number, keepLastFailed = true, prioritizeFailed = true) => {
   const ids = db.map((record) => record.id)
   if (ids.length === 0) return []
   const queue: string[] = []
-  if (keepLastFailed && game.lastFailedId && ids.includes(game.lastFailedId)) {
+  if (keepLastFailed && game.lastFailedId && ids.includes(game.lastFailedId) && prioritizeFailed) {
     queue.push(game.lastFailedId)
   }
   const pool = ids.filter((id) => !queue.includes(id))
+  if (keepLastFailed && game.lastFailedId && ids.includes(game.lastFailedId) && !prioritizeFailed) {
+    if (!pool.includes(game.lastFailedId)) {
+      pool.push(game.lastFailedId)
+    }
+  }
   while (queue.length < length && pool.length > 0) {
     const index = Math.floor(Math.random() * pool.length)
     queue.push(pool.splice(index, 1)[0])
@@ -651,6 +679,10 @@ const setFeedback = (message: string, variant: 'good' | 'bad' | 'neutral' = 'neu
 const updateHudButtons = (mode: GameMode) => {
   hudPinsButton?.classList.toggle('primary', mode === 'pins')
   hudSelectButton?.classList.toggle('primary', mode === 'select')
+}
+
+const setGameRunning = (running: boolean) => {
+  document.body.classList.toggle('game-running', running)
 }
 
 updateHudButtons(game.mode)
@@ -735,6 +767,7 @@ const updateTaskUI = async () => {
     selectMode?.classList.add('hidden')
     hidePins()
     await ensureAllLoaded()
+    await zoomPinsContext()
     clearArrow()
   }
 }
@@ -746,13 +779,14 @@ const startGame = async (mode: GameMode) => {
   }
   game.mode = mode
   updateHudButtons(mode)
-  game.queue = buildQueue(mode === 'pins' ? Math.min(12, db.length) : 7, mode === 'select')
+  game.queue = buildQueue(mode === 'pins' ? Math.min(12, db.length) : 7, mode === 'select', mode !== 'select')
   game.index = 0
   game.running = true
   game.streak = 0
   game.lastFailedId = null
   game.attemptsLeft = 12
   game.found = 0
+  setGameRunning(true)
   clearArrow()
   hidePins()
   clearGuessPin()
@@ -773,8 +807,9 @@ const handleSelectCorrect = async () => {
   if (game.streak >= 7) {
     setFeedback('Szuper! 7 egymás utáni helyes válasz. Játék vége.', 'good')
     game.running = false
+    setGameRunning(false)
     playSound('end')
-    showPostgame()
+    showPostgame('Gratulálunk!', 'Eredmény: 7/7 helyes sorozat')
     return
   }
   game.index += 1
@@ -790,7 +825,7 @@ const handleSelectIncorrect = async () => {
   const target = currentTarget()
   game.streak = 0
   game.lastFailedId = target?.id ?? null
-  game.queue = buildQueue(7)
+  game.queue = buildQueue(7, true, false)
   game.index = 0
   flashActive(Color.RED)
   playSound('wrong')
@@ -844,9 +879,14 @@ const handlePinsAttempt = async (
 
   if (game.attemptsLeft <= 0) {
     game.running = false
+    setGameRunning(false)
     setFeedback(`Vége! Találatok: ${game.found} / 12`, game.found >= 6 ? 'good' : 'neutral')
     playSound('end')
-    showPostgame()
+    const success = game.found >= 9
+    showPostgame(
+      success ? 'Gratulálunk!' : 'Ne add fel! Próbáld újra!',
+      `Eredmény: ${game.found} / 12 találat`
+    )
     await updateTaskUI()
     return
   }
@@ -923,6 +963,44 @@ const metersPerPixelAtCenter = () => {
   return Cartesian3.distance(p1, p2)
 }
 
+const zoomPinsContext = async () => {
+  const target = currentTarget()
+  if (!target) return
+  const targetCenter = getCenter(target.id)
+  if (!targetCenter) return
+
+  const centers = Array.from(recordCenters.entries())
+    .map(([id, center]) => ({ id, center }))
+    .filter((entry) => entry.id !== target.id)
+    .map((entry) => ({
+      ...entry,
+      distance: distanceKm(targetCenter, entry.center)
+    }))
+    .sort((a, b) => a.distance - b.distance)
+
+  const selected = [
+    { id: target.id, center: targetCenter },
+    ...centers.slice(0, 2).map((entry) => ({ id: entry.id, center: entry.center }))
+  ]
+
+  const points = selected.map((entry) =>
+    Cartesian3.fromRadians(entry.center.longitude, entry.center.latitude, entry.center.height ?? 0)
+  )
+
+  if (points.length === 0) return
+
+  const sphere = BoundingSphere.fromPoints(points)
+  const range = Math.max(sphere.radius * 5.0, 80000)
+  try {
+    await viewer.camera.flyToBoundingSphere(sphere, {
+      offset: new HeadingPitchRange(0, -Math.PI / 2, range),
+      duration: 0.8
+    })
+  } catch {
+    // ignore zoom errors
+  }
+}
+
 const ensureMinPixelSize = (recordId: string) => {
   const center = getCenter(recordId)
   const radius = recordRadii.get(recordId)
@@ -942,6 +1020,46 @@ const ensureMinPixelSize = (recordId: string) => {
 
 const distanceKm = (a: Cartographic, b: Cartographic) =>
   new EllipsoidGeodesic(a, b).surfaceDistance / 1000
+
+const closestPolylineDistanceKm = (recordId: string, point: Cartographic) => {
+  const source = dataSources.get(recordId)
+  if (!source) return null
+  let minDistance = Number.POSITIVE_INFINITY
+  let hasPolyline = false
+
+  source.entities.values.forEach((entity) => {
+    if (!entity.polyline?.positions) return
+    const positions = entity.polyline.positions.getValue(JulianDate.now()) as
+      | Cartesian3[]
+      | undefined
+    if (!positions || positions.length === 0) return
+    hasPolyline = true
+
+    if (positions.length === 1) {
+      const carto = Cartographic.fromCartesian(positions[0])
+      minDistance = Math.min(minDistance, distanceKm(point, carto))
+      return
+    }
+
+    for (let i = 0; i < positions.length - 1; i += 1) {
+      const start = positions[i]
+      const end = positions[i + 1]
+      const startCarto = Cartographic.fromCartesian(start)
+      const endCarto = Cartographic.fromCartesian(end)
+      const segmentKm = distanceKm(startCarto, endCarto)
+      const steps = Math.max(2, Math.ceil(segmentKm / 20))
+      for (let s = 0; s <= steps; s += 1) {
+        const t = s / steps
+        const sample = new Cartesian3()
+        Cartesian3.lerp(start, end, t, sample)
+        const sampleCarto = Cartographic.fromCartesian(sample)
+        minDistance = Math.min(minDistance, distanceKm(point, sampleCarto))
+      }
+    }
+  })
+
+  return hasPolyline ? minDistance : null
+}
 
 const clearArrow = () => {
   if (arrowEntity) {
@@ -1106,11 +1224,11 @@ const shuffle = <T,>(items: T[]) => {
 
 const renderOptions = () => {
   if (!optionList) return
-  const queueIds = new Set(game.queue)
-  const queueRecords = db.filter((record) => queueIds.has(record.id))
-  const distractors = db.filter((record) => !queueIds.has(record.id))
-  const extra = shuffle(distractors).slice(0, 5)
-  const options = shuffle([...queueRecords, ...extra])
+  const target = currentTarget()
+  if (!target) return
+  const distractors = db.filter((record) => record.id !== target.id)
+  const extra = shuffle(distractors).slice(0, 3)
+  const options = shuffle([target, ...extra])
 
   optionList.innerHTML = ''
   options.forEach((record) => {
@@ -1135,14 +1253,15 @@ handler.setInputAction(async (movement: { position: Cartesian2 }) => {
     const target = currentTarget()
     if (!target) return
     const center = getCenter(target.id)
-    if (!center) {
+    const polylineDist = closestPolylineDistanceKm(target.id, clickPoint)
+    if (!center && polylineDist === null) {
       setFeedback('Nincs középpont ehhez az alakzathoz.', 'bad')
       return
     }
-    const dist = distanceKm(clickPoint, center)
+    const dist = polylineDist ?? distanceKm(clickPoint, center!)
     const tolerance = getToleranceKm(target)
     const success = dist <= tolerance
-    await handlePinsAttempt(success, dist, clickPoint, center)
+    await handlePinsAttempt(success, dist, clickPoint, center ?? undefined)
     return
   }
 }, ScreenSpaceEventType.LEFT_CLICK)
@@ -1195,13 +1314,26 @@ landingDemoButtons.forEach((button) => {
       const text = await response.text()
       const dataset = parseRecords(text)
       applyDataset(dataset)
-      setFeedback('Demo betöltve. Indul a Gombostűk mód!', 'good')
+      game.running = false
+      setGameRunning(false)
+      selectMode?.classList.add('hidden')
+      setFeedback('Demo betöltve. Válassz játékmódot!', 'neutral')
       updateNav('player')
-      await startGame('pins')
     } catch {
       setFeedback('Nem sikerült betölteni a demót.', 'bad')
     }
   })
+})
+
+gameExitButton?.addEventListener('click', () => {
+  game.running = false
+  setGameRunning(false)
+  hidePostgame()
+  clearGuessPin()
+  clearArrow()
+  hidePins()
+  if (feedback) feedback.textContent = ' '
+  landing?.classList.remove('hidden')
 })
 
 hudPinsButton?.addEventListener('click', () => startGame('pins'))
