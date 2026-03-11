@@ -27,7 +27,9 @@ import {
   HorizontalOrigin,
   NearFarScalar,
   DistanceDisplayCondition,
-  SceneTransforms
+  DataSource,
+  Entity,
+  PolygonHierarchy
 } from 'cesium'
 import osmtogeojson from 'osmtogeojson'
 type GameMode = 'pins' | 'select'
@@ -41,6 +43,33 @@ type GameState = {
   running: boolean
   attemptsLeft: number
   found: number
+}
+
+type DataFormat = 'kml' | 'geojson'
+type DataType = 'text' | 'url'
+
+type DatasetCamera = {
+  longitude: number
+  latitude: number
+  height: number
+}
+
+type AreaRecord = {
+  id: string
+  name: string
+  customName?: string
+  aliases: string[]
+  toleranceKm?: number
+  data: string
+  dataType: DataType
+  format: DataFormat
+}
+
+type Dataset = {
+  title?: string
+  description?: string
+  camera?: DatasetCamera
+  items: AreaRecord[]
 }
 
 const POLYGON_FILL_ALPHA = 0.3
@@ -552,7 +581,7 @@ const applyDataset = (dataset: Dataset) => {
 
 const computeCenter = (dataSource: DataSource, recordId: string) => {
   const positions: Cartesian3[] = []
-  dataSource.entities.values.forEach((entity) => {
+  dataSource.entities.values.forEach((entity: Entity) => {
     if (entity.polygon?.hierarchy) {
       const hierarchy = entity.polygon.hierarchy.getValue(JulianDate.now()) as
         | PolygonHierarchy
@@ -612,7 +641,7 @@ const styleRecordGeometry = (recordId: string, activeId?: string) => {
   if (!source) return
   const isActive = Boolean(activeId) && recordId === activeId
 
-  source.entities.values.forEach((entity) => {
+  source.entities.values.forEach((entity: Entity) => {
     if (entity.polygon) {
       const fillColor = basePolygonColor(isActive)
       entity.polygon.material = new ColorMaterialProperty(fillColor)
@@ -1030,7 +1059,7 @@ const flashRecord = (
   const targetFill = color.withAlpha(POLYGON_FILL_ALPHA)
   const targetOutline = color.withAlpha(POLYGON_OUTLINE_ALPHA)
 
-  source.entities.values.forEach((entity) => {
+  source.entities.values.forEach((entity: Entity) => {
     if (entity.polygon) {
       const currentColor =
         entity.polygon.material instanceof ColorMaterialProperty
@@ -1072,71 +1101,6 @@ const getCenter = (id: string) => {
   return recordCenters.get(id) ?? null
 }
 
-const metersPerPixelAtCenter = () => {
-  const canvas = viewer.scene.canvas
-  const centerPx = new Cartesian2(canvas.clientWidth / 2, canvas.clientHeight / 2)
-  const rightPx = new Cartesian2(centerPx.x + 1, centerPx.y)
-  const p1 = viewer.camera.pickEllipsoid(centerPx, viewer.scene.globe.ellipsoid)
-  const p2 = viewer.camera.pickEllipsoid(rightPx, viewer.scene.globe.ellipsoid)
-  if (!p1 || !p2) return null
-  return Cartesian3.distance(p1, p2)
-}
-
-const zoomPinsContext = async () => {
-  const target = currentTarget()
-  if (!target) return
-  const targetCenter = getCenter(target.id)
-  if (!targetCenter) return
-
-  const centers = Array.from(recordCenters.entries())
-    .map(([id, center]) => ({ id, center }))
-    .filter((entry) => entry.id !== target.id)
-    .map((entry) => ({
-      ...entry,
-      distance: distanceKm(targetCenter, entry.center)
-    }))
-    .sort((a, b) => a.distance - b.distance)
-
-  const selected = [
-    { id: target.id, center: targetCenter },
-    ...centers.slice(0, 2).map((entry) => ({ id: entry.id, center: entry.center }))
-  ]
-
-  const points = selected.map((entry) =>
-    Cartesian3.fromRadians(entry.center.longitude, entry.center.latitude, entry.center.height ?? 0)
-  )
-
-  if (points.length === 0) return
-
-  const sphere = BoundingSphere.fromPoints(points)
-  const range = Math.max(sphere.radius * 5.0, 80000)
-  try {
-    await viewer.camera.flyToBoundingSphere(sphere, {
-      offset: new HeadingPitchRange(0, -Math.PI / 2, range),
-      duration: 0.8
-    })
-  } catch {
-    // ignore zoom errors
-  }
-}
-
-const ensureMinPixelSize = (recordId: string) => {
-  const center = getCenter(recordId)
-  const radius = recordRadii.get(recordId)
-  if (!center || !radius) return
-  const desiredPx = 50
-  const desiredMpp = (2 * radius) / desiredPx
-  const mpp = metersPerPixelAtCenter()
-  if (mpp !== null && mpp > desiredMpp) {
-    const factor = desiredMpp / mpp
-    const currentHeight = viewer.camera.positionCartographic?.height ?? 350000
-    const newHeight = Math.max(currentHeight * factor, 5000)
-    viewer.camera.setView({
-      destination: Cartesian3.fromRadians(center.longitude, center.latitude, newHeight)
-    })
-  }
-}
-
 const distanceKm = (a: Cartographic, b: Cartographic) =>
   new EllipsoidGeodesic(a, b).surfaceDistance / 1000
 
@@ -1146,7 +1110,7 @@ const closestPolylineDistanceKm = (recordId: string, point: Cartographic) => {
   let minDistance = Number.POSITIVE_INFINITY
   let hasPolyline = false
 
-  source.entities.values.forEach((entity) => {
+  source.entities.values.forEach((entity: Entity) => {
     if (!entity.polyline?.positions) return
     const positions = entity.polyline.positions.getValue(JulianDate.now()) as
       | Cartesian3[]
@@ -1184,13 +1148,13 @@ const getPolygonRings = (recordId: string) => {
   const source = dataSources.get(recordId)
   if (!source) return [] as Cartographic[][]
   const rings: Cartographic[][] = []
-  source.entities.values.forEach((entity) => {
+  source.entities.values.forEach((entity: Entity) => {
     const hierarchy = entity.polygon?.hierarchy?.getValue(JulianDate.now()) as
       | PolygonHierarchy
       | undefined
     if (!hierarchy) return
     const collect = (h: PolygonHierarchy) => {
-      rings.push(h.positions.map((p) => Cartographic.fromCartesian(p)))
+      rings.push(h.positions.map((p: Cartesian3) => Cartographic.fromCartesian(p)))
       h.holes?.forEach(collect)
     }
     collect(hierarchy)
@@ -1401,21 +1365,6 @@ const cardinal = (deg: number) => {
   const dirs = ['É', 'ÉK', 'K', 'DK', 'D', 'DNy', 'Ny', 'ÉNy']
   const index = Math.round(deg / 45) % 8
   return dirs[index]
-}
-
-const zoomToActiveTarget = async () => {
-  const target = currentTarget()
-  if (!target) return
-  const source = dataSources.get(target.id)
-  if (!source) return
-  try {
-    const currentHeight = viewer.camera.positionCartographic?.height ?? 350000
-    const offset = new HeadingPitchRange(0, -Math.PI / 2, currentHeight)
-    await viewer.flyTo(source, { duration: 0.6, offset })
-    ensureMinPixelSize(target.id)
-  } catch {
-    // ignore zoom errors
-  }
 }
 
 const zoomToAllRecords = async () => {
