@@ -14,6 +14,7 @@ import {
   Color,
   ConstantProperty,
   ColorMaterialProperty,
+  CallbackProperty,
   SceneMode,
   UrlTemplateImageryProvider,
   HeadingPitchRange,
@@ -25,31 +26,10 @@ import {
   VerticalOrigin,
   HorizontalOrigin,
   NearFarScalar,
-  DistanceDisplayCondition
+  DistanceDisplayCondition,
+  SceneTransforms
 } from 'cesium'
-import type { DataSource, Entity, PolygonHierarchy } from 'cesium'
 import osmtogeojson from 'osmtogeojson'
-
-type DataType = 'url' | 'text'
-type DataFormat = 'kml' | 'geojson'
-
-type AreaRecord = {
-  id: string
-  name: string
-  customName?: string
-  toleranceKm?: number
-  data: string
-  dataType: DataType
-  format: DataFormat
-  aliases: string[]
-}
-
-type Dataset = {
-  title?: string
-  description?: string
-  items: AreaRecord[]
-}
-
 type GameMode = 'pins' | 'select'
 
 type GameState = {
@@ -62,6 +42,17 @@ type GameState = {
   attemptsLeft: number
   found: number
 }
+
+const POLYGON_FILL_ALPHA = 0.3
+const ACTIVE_POLYGON_FILL_ALPHA = 0.7
+const POLYGON_OUTLINE_ALPHA = 0.7
+const POLYLINE_ALPHA = 0.7
+const ACTIVE_FILL = Color.ORANGE
+const INACTIVE_FILL = Color.CYAN
+const ACTIVE_OUTLINE = Color.YELLOW
+const INACTIVE_OUTLINE = Color.WHITE
+const POLYLINE_ACTIVE = Color.YELLOW
+const POLYLINE_INACTIVE = Color.CYAN
 
 Ion.defaultAccessToken = import.meta.env.VITE_CESIUM_TOKEN ?? ''
 
@@ -93,6 +84,7 @@ app.innerHTML = `
             <div class="landing-demo-buttons">
               <button class="landing-demo" data-demo="/games/kozepeuropafolyoivizei.json">Közép-Európa folyói vizei</button>
               <button class="landing-demo" data-demo="/games/kozepeuropavarosai.json">Közép-Európa városai</button>
+              <button class="landing-demo" data-demo="/games/magyarorszagkozeptajai.json">Magyarország középtájai</button>
             </div>
           </div>
         </div>
@@ -339,6 +331,7 @@ const statusExtra = document.querySelector<HTMLDivElement>('#status-extra')
 let db: AreaRecord[] = []
 let datasetTitle = ''
 let datasetDescription = ''
+let datasetCamera: DatasetCamera | undefined
 let editingId: string | null = null
 const dataSources = new Map<string, DataSource>()
 let borderDataSource: DataSource | null = null
@@ -347,6 +340,7 @@ const recordRadii = new Map<string, number>()
 let arrowEntity: Entity | null = null
 const pinEntities = new Map<string, Entity>()
 let guessPin: Entity | null = null
+let interactionLocked = false
 
 const game: GameState = {
   mode: 'pins',
@@ -445,6 +439,9 @@ const updateNav = (mode: 'editor' | 'player') => {
   document.body.classList.toggle('mode-editor', isEditor)
   document.body.classList.toggle('mode-player', !isEditor)
   setGameRunning(false)
+  if (!isEditor) {
+    applyStyles()
+  }
 }
 
 const refreshList = () => {
@@ -477,7 +474,12 @@ const createId = () => crypto.randomUUID()
 const parseRecords = (text: string): Dataset => {
   const parsed = JSON.parse(text) as
     | Array<Partial<AreaRecord> & { kml?: string; kmlType?: DataType }>
-    | { title?: string; description?: string; items?: Array<Partial<AreaRecord> & { kml?: string; kmlType?: DataType }> }
+    | {
+        title?: string
+        description?: string
+        camera?: Partial<DatasetCamera>
+        items?: Array<Partial<AreaRecord> & { kml?: string; kmlType?: DataType }>
+      }
 
   const toRecord = (item: Partial<AreaRecord> & { kml?: string; kmlType?: DataType }) => {
     const data = item.data ?? item.kml ?? ''
@@ -499,14 +501,27 @@ const parseRecords = (text: string): Dataset => {
     } as AreaRecord
   }
 
+  const cameraFromParsed = parsed && 'camera' in parsed && parsed.camera
+  const camera =
+    cameraFromParsed &&
+    typeof cameraFromParsed.longitude === 'number' &&
+    typeof cameraFromParsed.latitude === 'number' &&
+    typeof cameraFromParsed.height === 'number'
+      ? {
+          longitude: cameraFromParsed.longitude,
+          latitude: cameraFromParsed.latitude,
+          height: cameraFromParsed.height
+        }
+      : undefined
+
   if (Array.isArray(parsed)) {
     const items = parsed.map(toRecord).filter((item) => item.name && item.data)
-    return { items }
+    return { items, camera }
   }
 
   if (parsed && Array.isArray(parsed.items)) {
     const items = parsed.items.map(toRecord).filter((item) => item.name && item.data)
-    return { title: parsed.title, description: parsed.description, items }
+    return { title: parsed.title, description: parsed.description, camera, items }
   }
 
   throw new Error('Invalid JSON')
@@ -516,12 +531,23 @@ const applyDataset = (dataset: Dataset) => {
   db = dataset.items
   datasetTitle = dataset.title ?? ''
   datasetDescription = dataset.description ?? ''
+  datasetCamera = dataset.camera
   if (datasetTitleInput) datasetTitleInput.value = datasetTitle
   if (datasetDescriptionInput) datasetDescriptionInput.value = datasetDescription
   resetDataSources()
   dataSources.clear()
   recordCenters.clear()
   refreshList()
+
+  if (datasetCamera) {
+    viewer.camera.setView({
+      destination: Cartesian3.fromRadians(
+        datasetCamera.longitude,
+        datasetCamera.latitude,
+        datasetCamera.height
+      )
+    })
+  }
 }
 
 const computeCenter = (dataSource: DataSource, recordId: string) => {
@@ -570,6 +596,51 @@ const computeCenter = (dataSource: DataSource, recordId: string) => {
   recordRadii.set(recordId, maxRadius)
 }
 
+const basePolygonColor = (isActive: boolean) =>
+  isActive
+    ? ACTIVE_FILL.withAlpha(ACTIVE_POLYGON_FILL_ALPHA)
+    : INACTIVE_FILL.withAlpha(POLYGON_FILL_ALPHA)
+
+const baseOutlineColor = (isActive: boolean) =>
+  (isActive ? ACTIVE_OUTLINE : INACTIVE_OUTLINE).withAlpha(POLYGON_OUTLINE_ALPHA)
+
+const basePolylineColor = (isActive: boolean) =>
+  (isActive ? POLYLINE_ACTIVE : POLYLINE_INACTIVE).withAlpha(POLYLINE_ALPHA)
+
+const styleRecordGeometry = (recordId: string, activeId?: string) => {
+  const source = dataSources.get(recordId)
+  if (!source) return
+  const isActive = Boolean(activeId) && recordId === activeId
+
+  source.entities.values.forEach((entity) => {
+    if (entity.polygon) {
+      const fillColor = basePolygonColor(isActive)
+      entity.polygon.material = new ColorMaterialProperty(fillColor)
+      entity.polygon.outline = new ConstantProperty(true)
+      entity.polygon.outlineColor = new ConstantProperty(baseOutlineColor(isActive))
+      entity.polygon.outlineWidth = new ConstantProperty(1.2)
+      entity.polygon.height = new ConstantProperty(0)
+      entity.polygon.heightReference = new ConstantProperty(HeightReference.NONE)
+    }
+    if (entity.polyline) {
+      const existingPolylineColor =
+        entity.polyline.material instanceof ColorMaterialProperty
+          ? (entity.polyline.material.color?.getValue(JulianDate.now()) as Color | undefined)
+          : undefined
+      const polylineColor = (existingPolylineColor ?? basePolylineColor(isActive)).withAlpha(
+        POLYLINE_ALPHA
+      )
+      entity.polyline.material = new ColorMaterialProperty(polylineColor)
+      entity.polyline.width = new ConstantProperty(isActive ? 4 : 2.5)
+      entity.polyline.clampToGround = new ConstantProperty(false)
+    }
+  })
+}
+
+const applyStyles = (activeId?: string) => {
+  dataSources.forEach((_, id) => styleRecordGeometry(id, activeId))
+}
+
 const loadDataSource = async (record: AreaRecord, options?: { replace?: boolean; zoom?: boolean }) => {
   if (options?.replace) {
     resetDataSources()
@@ -586,17 +657,22 @@ const loadDataSource = async (record: AreaRecord, options?: { replace?: boolean;
     return
   }
 
-  const payload = record.dataType === 'url' ? record.data : record.data
+  const payload = record.data
   const dataSource =
     record.format === 'geojson'
       ? await GeoJsonDataSource.load(
           record.dataType === 'text' ? JSON.parse(payload) : payload,
           { clampToGround: false }
         )
-      : await KmlDataSource.load(payload, {
-          camera: viewer.scene.camera,
-          canvas: viewer.scene.canvas
-        })
+      : await KmlDataSource.load(
+          record.dataType === 'text'
+            ? new DOMParser().parseFromString(payload, 'application/xml')
+            : payload,
+          {
+            camera: viewer.scene.camera,
+            canvas: viewer.scene.canvas
+          }
+        )
 
   dataSource.name = record.name
   dataSource.entities.values.forEach((entity) => {
@@ -610,17 +686,11 @@ const loadDataSource = async (record: AreaRecord, options?: { replace?: boolean;
     if (entity.point) {
       entity.point.show = new ConstantProperty(false)
     }
-    if (entity.polygon) {
-      entity.polygon.height = new ConstantProperty(0)
-      entity.polygon.heightReference = new ConstantProperty(HeightReference.NONE)
-    }
-    if (entity.polyline) {
-      entity.polyline.clampToGround = new ConstantProperty(false)
-    }
   })
 
   viewer.dataSources.add(dataSource)
   dataSources.set(record.id, dataSource)
+  styleRecordGeometry(record.id)
   computeCenter(dataSource, record.id)
 
   if (options?.zoom) {
@@ -649,9 +719,15 @@ const resetDataSources = () => {
   }
 }
 
-const buildQueue = (length: number, keepLastFailed = true, prioritizeFailed = true) => {
+const buildQueue = (
+  length: number,
+  options?: { keepLastFailed?: boolean; prioritizeFailed?: boolean; allowRepeats?: boolean }
+) => {
   const ids = db.map((record) => record.id)
   if (ids.length === 0) return []
+  const keepLastFailed = options?.keepLastFailed ?? true
+  const prioritizeFailed = options?.prioritizeFailed ?? true
+  const allowRepeats = options?.allowRepeats ?? true
   const queue: string[] = []
   if (keepLastFailed && game.lastFailedId && ids.includes(game.lastFailedId) && prioritizeFailed) {
     queue.push(game.lastFailedId)
@@ -666,9 +742,11 @@ const buildQueue = (length: number, keepLastFailed = true, prioritizeFailed = tr
     const index = Math.floor(Math.random() * pool.length)
     queue.push(pool.splice(index, 1)[0])
   }
-  while (queue.length < length && ids.length > 0) {
-    const index = Math.floor(Math.random() * ids.length)
-    queue.push(ids[index])
+  if (allowRepeats) {
+    while (queue.length < length && ids.length > 0) {
+      const index = Math.floor(Math.random() * ids.length)
+      queue.push(ids[index])
+    }
   }
   return queue
 }
@@ -746,9 +824,8 @@ const resetForm = () => {
   if (recordFormat) recordFormat.value = 'kml'
 }
 
-const getToleranceKm = (record: AreaRecord) => record.toleranceKm && record.toleranceKm > 0
-  ? record.toleranceKm
-  : 50
+const getToleranceKm = (record: AreaRecord) =>
+  Number.isFinite(record.toleranceKm) ? (record.toleranceKm as number) : 50
 
 const updateTaskUI = async () => {
   const target = currentTarget()
@@ -772,9 +849,12 @@ const updateTaskUI = async () => {
     selectMode?.classList.add('hidden')
     hidePins()
     await ensureAllLoaded()
-    await zoomPinsContext()
     clearArrow()
   }
+}
+
+const resetPinsStyles = () => {
+  applyHighlight(undefined)
 }
 
 const startGame = async (mode: GameMode) => {
@@ -782,9 +862,16 @@ const startGame = async (mode: GameMode) => {
     setFeedback('Nincs betöltött adatbázis.', 'bad')
     return
   }
+  interactionLocked = false
   game.mode = mode
   updateHudButtons(mode)
-  game.queue = buildQueue(mode === 'pins' ? Math.min(12, db.length) : 7, mode === 'select', mode !== 'select')
+  const queueSize = mode === 'pins' ? Math.min(12, db.length) : 7
+  const allowRepeatInPins = db.length < queueSize
+  game.queue = buildQueue(queueSize, {
+    keepLastFailed: mode === 'select',
+    prioritizeFailed: mode === 'select',
+    allowRepeats: allowRepeatInPins
+  })
   game.index = 0
   game.running = true
   game.streak = 0
@@ -795,21 +882,24 @@ const startGame = async (mode: GameMode) => {
   clearArrow()
   hidePins()
   clearGuessPin()
+  resetPinsStyles()
   playSound('start', 0.9)
   setFeedback('Játék indítva.', 'neutral')
   hidePostgame()
+  await zoomToAllRecords()
   await updateTaskUI()
 }
 
 const handleSelectCorrect = async () => {
+  if (interactionLocked) return
+  interactionLocked = true
   game.streak += 1
-  flashActive(Color.LIME)
-  if (game.streak >= 3 && game.streak < 7) {
-    playSound('streak', 0.7)
-  } else {
-    playSound('correct')
-  }
+  const target = currentTarget()
+  const flash = target ? flashRecord(target.id, Color.LIME, { duration: 1200 }) : Promise.resolve()
+  playSound('correct')
+  await flash
   if (game.streak >= 7) {
+    if (statusExtra) statusExtra.textContent = 'Streak: 7 / 7'
     setFeedback('Szuper! 7 egymás utáni helyes válasz. Játék vége.', 'good')
     game.running = false
     setGameRunning(false)
@@ -824,15 +914,16 @@ const handleSelectCorrect = async () => {
   }
   setFeedback('Helyes!', 'good')
   await updateTaskUI()
+  interactionLocked = false
 }
 
 const handleSelectIncorrect = async () => {
   const target = currentTarget()
   game.streak = 0
   game.lastFailedId = target?.id ?? null
-  game.queue = buildQueue(7, true, false)
+  game.queue = buildQueue(7, { keepLastFailed: true, prioritizeFailed: false })
   game.index = 0
-  flashActive(Color.RED)
+  if (target) await flashRecord(target.id, Color.RED, { duration: 1200 })
   playSound('wrong')
   if (target) {
     setFeedback(`Nem jó. Helyes: ${displayName(target)}. Új feladatsor indul.`, 'bad')
@@ -845,7 +936,9 @@ const handleSelectIncorrect = async () => {
 const advancePinsQueue = () => {
   game.index += 1
   if (game.index >= game.queue.length) {
-    game.queue = buildQueue(Math.min(12, db.length), false)
+    const queueSize = Math.min(12, db.length)
+    const allowRepeatInPins = db.length < queueSize
+    game.queue = buildQueue(queueSize, { allowRepeats: allowRepeatInPins })
     game.index = 0
   }
 }
@@ -854,100 +947,121 @@ const handlePinsAttempt = async (
   success: boolean,
   distance?: number,
   clickPoint?: Cartographic,
-  targetPoint?: Cartographic
+  targetPoint?: Cartographic,
+  clickedRecordId?: string
 ) => {
-  if (!game.running) return
-  game.attemptsLeft -= 1
-  if (clickPoint && targetPoint && typeof distance === 'number') {
-    const brng = bearingDegrees(clickPoint, targetPoint)
-    const dir = cardinal(brng)
-    setGuessPin(clickPoint, `${dir} · ${distance.toFixed(1)} km`)
-  }
-
-  if (success) {
-    clearArrow()
-    game.found += 1
-    playSound('correct')
-    setFeedback('Talált!', 'good')
-    advancePinsQueue()
-  } else {
-    playSound('wrong')
+  if (!game.running || interactionLocked) return
+  interactionLocked = true
+  try {
+    const targetId = currentTarget()?.id
+    game.attemptsLeft -= 1
     if (clickPoint && targetPoint && typeof distance === 'number') {
-      showArrow(clickPoint, targetPoint, distance)
       const brng = bearingDegrees(clickPoint, targetPoint)
       const dir = cardinal(brng)
-      setFeedback(`Mellé. ${distance.toFixed(1)} km · ${dir}`, 'bad')
+      setGuessPin(clickPoint, `${dir} · ${distance.toFixed(1)} km`)
+    }
+
+    if (success) {
+      clearArrow()
+      game.found += 1
+      playSound('correct')
+      setFeedback('Talált!', 'good')
+      if (targetId) {
+        await flashRecord(targetId, Color.LIME, { duration: 1000, restoreHighlight: false })
+      }
+      advancePinsQueue()
+      await updateTaskUI()
     } else {
-      setFeedback('Mellé. Próbáld újra.', 'bad')
+      playSound('wrong')
+      if (clickPoint && targetPoint && typeof distance === 'number') {
+        showArrow(clickPoint, targetPoint, distance)
+        const brng = bearingDegrees(clickPoint, targetPoint)
+        const dir = cardinal(brng)
+        setFeedback(`Mellé. ${distance.toFixed(1)} km · ${dir}`, 'bad')
+      } else {
+        setFeedback('Mellé. Próbáld újra.', 'bad')
+      }
+      const flashId = clickedRecordId ?? targetId
+      if (flashId) {
+        await flashRecord(flashId, Color.RED, { duration: 1000, restoreHighlight: false })
+      }
     }
-  }
 
-  if (game.attemptsLeft <= 0) {
-    game.running = false
-    setGameRunning(false)
-    setFeedback(`Vége! Találatok: ${game.found} / 12`, game.found >= 6 ? 'good' : 'neutral')
-    playSound('end')
-    const success = game.found >= 9
-    showPostgame(
-      success ? 'Gratulálunk!' : 'Ne add fel! Próbáld újra!',
-      `Eredmény: ${game.found} / 12 találat`
-    )
-    await updateTaskUI()
-    return
-  }
-
-  if (success) {
-    await updateTaskUI()
-  } else {
-    // Stay on the same target; only refresh counters/status text
-    if (statusExtra) {
-      const used = 12 - game.attemptsLeft
-      statusExtra.textContent = `Lépések: ${used} / 12 · Találat: ${game.found}`
+    if (game.attemptsLeft <= 0) {
+      game.running = false
+      setGameRunning(false)
+      setFeedback(`Vége! Találatok: ${game.found} / 12`, game.found >= 6 ? 'good' : 'neutral')
+      playSound('end')
+      const successNow = game.found >= 9
+      showPostgame(
+        successNow ? 'Gratulálunk!' : 'Ne add fel! Próbáld újra!',
+        `Eredmény: ${game.found} / 12 találat`
+      )
+      await updateTaskUI()
+      return
     }
+
+    await updateTaskUI()
+  } finally {
+    interactionLocked = false
   }
 }
 
-const applyHighlight = (activeId: string) => {
-  dataSources.forEach((source, id) => {
-    const isActive = id === activeId
-    source.entities.values.forEach((entity) => {
-      if (entity.polygon) {
-        entity.polygon.outline = new ConstantProperty(true)
-        entity.polygon.outlineColor = new ConstantProperty(
-          isActive ? Color.YELLOW : Color.WHITE.withAlpha(0.8)
-        )
-        entity.polygon.material = new ColorMaterialProperty(
-          (isActive ? Color.YELLOW : Color.CYAN).withAlpha(isActive ? 0.45 : 0.2)
-        )
-      }
-      if (entity.polyline) {
-        entity.polyline.material = new ColorMaterialProperty(
-          isActive ? Color.YELLOW : Color.CYAN.withAlpha(0.9)
-        )
-        entity.polyline.width = new ConstantProperty(isActive ? 4 : 2.5)
-      }
-    })
-  })
-  if (game.mode === 'select') {
+const applyHighlight = (activeId?: string) => {
+  applyStyles(activeId)
+  if (game.mode === 'select' && activeId) {
     showPin(activeId, true)
   }
 }
 
-const flashActive = (color: Color) => {
-  const target = currentTarget()
-  if (!target) return
-  const source = dataSources.get(target.id)
-  if (!source) return
+const easeInOut = (t: number) => t * t * (3 - 2 * t)
+
+const flashRecord = (
+  recordId: string,
+  color: Color,
+  options?: { duration?: number; restoreHighlight?: boolean }
+) => {
+  const duration = options?.duration ?? 1200
+  const restoreHighlight = options?.restoreHighlight ?? true
+  const source = dataSources.get(recordId)
+  if (!source) return Promise.resolve()
+
+  const start = performance.now()
+  const targetFill = color.withAlpha(POLYGON_FILL_ALPHA)
+  const targetOutline = color.withAlpha(POLYGON_OUTLINE_ALPHA)
+
   source.entities.values.forEach((entity) => {
     if (entity.polygon) {
-      entity.polygon.material = new ColorMaterialProperty(color.withAlpha(0.6))
-      entity.polygon.outlineColor = new ConstantProperty(color)
+      const currentColor =
+        entity.polygon.material instanceof ColorMaterialProperty
+          ? (entity.polygon.material.color?.getValue(JulianDate.now()) as Color | undefined)
+          : undefined
+      const fromColor = (currentColor ?? targetFill).withAlpha(POLYGON_FILL_ALPHA)
+      const animated = new CallbackProperty((_, result) => {
+        const t = Math.min((performance.now() - start) / duration, 1)
+        const eased = easeInOut(t)
+        const safeResult = result ?? new Color()
+        return Color.lerp(fromColor, targetFill, eased, safeResult)
+      }, false)
+      entity.polygon.material = new ColorMaterialProperty(animated)
+      entity.polygon.outlineColor = new ConstantProperty(targetOutline)
     }
     if (entity.polyline) {
-      entity.polyline.material = new ColorMaterialProperty(color)
+      entity.polyline.material = new ColorMaterialProperty(color.withAlpha(POLYLINE_ALPHA))
+      entity.polyline.width = new ConstantProperty(4)
     }
   })
-  window.setTimeout(() => applyHighlight(target.id), 350)
+
+  return new Promise<void>((resolve) => {
+    window.setTimeout(() => {
+      if (restoreHighlight && game.mode === 'select' && currentTarget()) {
+        applyHighlight(currentTarget()!.id)
+      } else {
+        applyHighlight(game.mode === 'select' ? currentTarget()?.id : undefined)
+      }
+      resolve()
+    }, duration)
+  })
 }
 
 const getCenter = (id: string) => {
@@ -1066,6 +1180,78 @@ const closestPolylineDistanceKm = (recordId: string, point: Cartographic) => {
   return hasPolyline ? minDistance : null
 }
 
+const getPolygonRings = (recordId: string) => {
+  const source = dataSources.get(recordId)
+  if (!source) return [] as Cartographic[][]
+  const rings: Cartographic[][] = []
+  source.entities.values.forEach((entity) => {
+    const hierarchy = entity.polygon?.hierarchy?.getValue(JulianDate.now()) as
+      | PolygonHierarchy
+      | undefined
+    if (!hierarchy) return
+    const collect = (h: PolygonHierarchy) => {
+      rings.push(h.positions.map((p) => Cartographic.fromCartesian(p)))
+      h.holes?.forEach(collect)
+    }
+    collect(hierarchy)
+  })
+  return rings
+}
+
+const pointInRing = (point: Cartographic, ring: Cartographic[]) => {
+  let inside = false
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i, i += 1) {
+    const xi = ring[i].longitude
+    const yi = ring[i].latitude
+    const xj = ring[j].longitude
+    const yj = ring[j].latitude
+    const intersect = yi > point.latitude !== yj > point.latitude &&
+      point.longitude < ((xj - xi) * (point.latitude - yi)) / (yj - yi) + xi
+    if (intersect) inside = !inside
+  }
+  return inside
+}
+
+const isPointInsideRecordPolygon = (recordId: string, point: Cartographic) => {
+  const rings = getPolygonRings(recordId)
+  if (rings.length === 0) return false
+  // First ring is outer, subsequent rings (holes) invert the result
+  const outer = rings[0]
+  if (!pointInRing(point, outer)) return false
+  for (let i = 1; i < rings.length; i += 1) {
+    if (pointInRing(point, rings[i])) return false
+  }
+  return true
+}
+
+const closestPolygonBoundaryDistanceKm = (recordId: string, point: Cartographic) => {
+  const rings = getPolygonRings(recordId)
+  if (rings.length === 0) return null
+  let minDistance = Number.POSITIVE_INFINITY
+  rings.forEach((ring) => {
+    if (ring.length === 1) {
+      minDistance = Math.min(minDistance, distanceKm(point, ring[0]))
+      return
+    }
+    for (let i = 0; i < ring.length; i += 1) {
+      const start = ring[i]
+      const end = ring[(i + 1) % ring.length]
+      const segmentKm = distanceKm(start, end)
+      const steps = Math.max(2, Math.ceil(segmentKm / 20))
+      for (let s = 0; s <= steps; s += 1) {
+        const t = s / steps
+        const sample = new Cartographic(
+          start.longitude + (end.longitude - start.longitude) * t,
+          start.latitude + (end.latitude - start.latitude) * t,
+          0
+        )
+        minDistance = Math.min(minDistance, distanceKm(point, sample))
+      }
+    }
+  })
+  return minDistance
+}
+
 const clearArrow = () => {
   if (arrowEntity) {
     viewer.entities.remove(arrowEntity)
@@ -1101,12 +1287,39 @@ const showPin = (recordId: string, visible: boolean) => {
 
 const showArrow = (from: Cartographic, to: Cartographic, distanceKm: number) => {
   clearArrow()
-  const positions = Cartesian3.fromRadiansArray([from.longitude, from.latitude, to.longitude, to.latitude])
-  const labelPosition = Cartesian3.fromRadians(
-    (from.longitude + to.longitude) / 2,
-    (from.latitude + to.latitude) / 2,
-    0
-  )
+  const scene = viewer.scene
+  const startCartesian = Cartesian3.fromRadians(from.longitude, from.latitude, from.height ?? 0)
+  const endCartesian = Cartesian3.fromRadians(to.longitude, to.latitude, to.height ?? 0)
+  const startScreen = viewer.scene.cartesianToCanvasCoordinates(startCartesian, new Cartesian2())
+  const endScreen = viewer.scene.cartesianToCanvasCoordinates(endCartesian, new Cartesian2())
+
+  let arrowStart = startCartesian
+  let arrowEnd: Cartesian3 | null = null
+
+  if (startScreen && endScreen) {
+    const dir = Cartesian2.subtract(endScreen, startScreen, new Cartesian2())
+    const len = Math.hypot(dir.x, dir.y)
+    if (len > 0) {
+      const scaled = Cartesian2.multiplyByScalar(dir, 50 / len, new Cartesian2())
+      const screenEnd = Cartesian2.add(startScreen, scaled, new Cartesian2())
+      arrowEnd = viewer.camera.pickEllipsoid(screenEnd, scene.globe.ellipsoid) ?? null
+    }
+  }
+
+  if (!arrowEnd) {
+    // Fallback: short segment toward target in world space (2% of distance)
+    const startCarto = from
+    const toward = new Cartographic(
+      startCarto.longitude + (to.longitude - startCarto.longitude) * 0.02,
+      startCarto.latitude + (to.latitude - startCarto.latitude) * 0.02,
+      0
+    )
+    arrowEnd = Cartesian3.fromRadians(toward.longitude, toward.latitude, 0)
+  }
+
+  const positions = [arrowStart, arrowEnd]
+  const labelPosition = Cartesian3.lerp(arrowStart, arrowEnd, 0.5, new Cartesian3())
+
   arrowEntity = viewer.entities.add({
     polyline: {
       positions,
@@ -1205,17 +1418,40 @@ const zoomToActiveTarget = async () => {
   }
 }
 
-const loadSetSources = async () => {
-  resetDataSources()
-  dataSources.clear()
-  const ids = game.queue
-  for (const id of ids) {
-    const record = db.find((item) => item.id === id)
-    if (record) {
-      await loadDataSource(record)
+const zoomToAllRecords = async () => {
+  await ensureAllLoaded()
+  const points = Array.from(recordCenters.values()).map((c) =>
+    Cartesian3.fromRadians(c.longitude, c.latitude, c.height ?? 0)
+  )
+
+  if (points.length === 0) {
+    if (datasetCamera) {
+      viewer.camera.setView({
+        destination: Cartesian3.fromRadians(
+          datasetCamera.longitude,
+          datasetCamera.latitude,
+          datasetCamera.height
+        )
+      })
     }
+    return
   }
-  await zoomToActiveTarget()
+
+  const sphere = BoundingSphere.fromPoints(points)
+  const range = Math.max(sphere.radius * 4.5, 250000)
+  try {
+    await viewer.camera.flyToBoundingSphere(sphere, {
+      offset: new HeadingPitchRange(0, -Math.PI / 2, range),
+      duration: 0.9
+    })
+  } catch {
+    // ignore zoom errors
+  }
+}
+
+const loadSetSources = async () => {
+  await ensureAllLoaded()
+  applyHighlight(currentTarget()?.id)
 }
 
 const shuffle = <T,>(items: T[]) => {
@@ -1246,7 +1482,12 @@ const renderOptions = () => {
 }
 
 handler.setInputAction(async (movement: { position: Cartesian2 }) => {
-  if (!game.running) return
+  if (!game.running || interactionLocked) return
+  const picked = viewer.scene.pick(movement.position)
+  const clickedRecordId =
+    picked && (picked as { id?: { recordId?: string } }).id?.recordId
+      ? (picked as { id?: { recordId?: string } }).id?.recordId
+      : undefined
   if (game.mode === 'pins') {
     const cartesian = viewer.camera.pickEllipsoid(movement.position, viewer.scene.globe.ellipsoid)
     if (!cartesian) {
@@ -1259,14 +1500,25 @@ handler.setInputAction(async (movement: { position: Cartesian2 }) => {
     if (!target) return
     const center = getCenter(target.id)
     const polylineDist = closestPolylineDistanceKm(target.id, clickPoint)
-    if (!center && polylineDist === null) {
-      setFeedback('Nincs középpont ehhez az alakzathoz.', 'bad')
+    const polygonInside = isPointInsideRecordPolygon(target.id, clickPoint)
+    const polygonBoundaryDist = closestPolygonBoundaryDistanceKm(target.id, clickPoint)
+
+    if (!center && polylineDist === null && polygonBoundaryDist === null && !polygonInside) {
+      setFeedback('Nincs alakzat ehhez a tételhez.', 'bad')
       return
     }
-    const dist = polylineDist ?? distanceKm(clickPoint, center!)
+
+    const distCandidates = [
+      polygonInside ? 0 : null,
+      polygonBoundaryDist,
+      polylineDist,
+      center ? distanceKm(clickPoint, center) : null
+    ].filter((v): v is number => typeof v === 'number')
+
+    const dist = distCandidates.length > 0 ? Math.min(...distCandidates) : Number.POSITIVE_INFINITY
     const tolerance = getToleranceKm(target)
-    const success = dist <= tolerance
-    await handlePinsAttempt(success, dist, clickPoint, center ?? undefined)
+    const success = polygonInside || dist <= tolerance
+    await handlePinsAttempt(success, dist, clickPoint, center ?? undefined, clickedRecordId)
     return
   }
 }, ScreenSpaceEventType.LEFT_CLICK)
@@ -1365,8 +1617,11 @@ addRecordButton?.addEventListener('click', async () => {
   const customName = recordCustomName?.value.trim()
   datasetTitle = datasetTitleInput?.value.trim() ?? ''
   datasetDescription = datasetDescriptionInput?.value.trim() ?? ''
-  const toleranceValue = Number(recordTolerance?.value)
-  const toleranceKm = Number.isFinite(toleranceValue) && toleranceValue > 0 ? toleranceValue : undefined
+  const toleranceRaw = recordTolerance?.value.trim() ?? ''
+  const toleranceValue = toleranceRaw === '' ? undefined : Number(toleranceRaw)
+  const toleranceKm = toleranceValue === undefined || !Number.isFinite(toleranceValue)
+    ? undefined
+    : toleranceValue
 
   const file = recordFile?.files?.[0]
   const url = recordUrl?.value.trim()
@@ -1536,9 +1791,17 @@ recordList?.addEventListener('click', async (event) => {
 
 saveJsonButton?.addEventListener('click', () => {
   syncDatasetMeta()
+  const cam = viewer.camera.positionCartographic
   const payload: Dataset = {
     title: datasetTitle || undefined,
     description: datasetDescription || undefined,
+    camera: cam
+      ? {
+          longitude: cam.longitude,
+          latitude: cam.latitude,
+          height: cam.height
+        }
+      : undefined,
     items: db
   }
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
@@ -1565,7 +1828,7 @@ loadJsonInput?.addEventListener('change', async () => {
 })
 
 optionList?.addEventListener('click', async (event) => {
-  if (!game.running || game.mode !== 'select') return
+  if (!game.running || game.mode !== 'select' || interactionLocked) return
   const target = event.target as HTMLElement
   if (!target?.dataset?.id) return
   const selectedId = target.dataset.id
