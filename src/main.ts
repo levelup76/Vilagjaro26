@@ -775,12 +775,8 @@ const handlePinsAttempt = async (
     const targetId = currentTarget()?.id
     game.attemptsLeft -= 1
 
-    if (targetCenter) {
-      const dir = cardinal(bearingDegrees(clickPoint, targetCenter))
-      engine.setGuessPin(clickPoint, `${dir} · ${distance.toFixed(1)} km`)
-    }
-
     if (success) {
+      engine.clearGuessPin()
       engine.clearArrow()
       game.found += 1
       playSound('correct')
@@ -791,8 +787,10 @@ const handlePinsAttempt = async (
     } else {
       playSound('wrong')
       if (targetCenter) {
+        const dir = cardinal(bearingDegrees(clickPoint, targetCenter))
+        engine.setGuessPin(clickPoint, `${dir} · ${distance.toFixed(1)} km`)
         engine.showArrow(clickPoint, targetCenter, distance)
-        setFeedback(`Mellé. ${distance.toFixed(1)} km · ${cardinal(bearingDegrees(clickPoint, targetCenter))}`, 'bad')
+        setFeedback(`Mellé. ${distance.toFixed(1)} km · ${dir}`, 'bad')
       } else {
         setFeedback('Mellé. Próbáld újra.', 'bad')
       }
