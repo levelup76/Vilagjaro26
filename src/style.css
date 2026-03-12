@@ -520,9 +520,19 @@ body.landing-open {
   overflow: hidden;
 }
 
-#cesiumContainer {
+#mapContainer {
   position: absolute;
   inset: 0;
+}
+
+/* Override OL default cursor to pointer on hover */
+#mapContainer .ol-viewport {
+  cursor: crosshair;
+}
+
+/* Hide OL attribution (optional) */
+#mapContainer .ol-attribution {
+  display: none;
 }
 
 body.mode-editor .map {

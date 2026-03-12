@@ -14,8 +14,7 @@
     "vite": "^7.2.4"
   },
   "dependencies": {
-    "cesium": "^1.137.0",
-    "osmtogeojson": "^3.0.0-beta.5",
-    "vite-plugin-cesium": "^1.2.23"
+    "ol": "^10.8.0",
+    "osmtogeojson": "^3.0.0-beta.5"
   }
 }
