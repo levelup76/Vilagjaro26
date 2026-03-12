@@ -147,104 +147,112 @@ app.innerHTML = `
         </div>
 
         <section id="editor-view" class="view">
-          <div class="panel-stack">
-            <div class="section-card accent">
-              <div class="section-header">
-                <div>
-                  <p class="eyebrow">Szerkesztő</p>
-                  <h2>Építs saját feladatsort</h2>
-                  <p class="section-subtitle">Importáld a KML/GeoJSON adatokat URL-ről vagy fájlból. A lista azonnal betöltődik a térképre.</p>
-                </div>
-                <div class="pill-row">
-                  <span class="pill">KML</span>
-                  <span class="pill">GeoJSON</span>
-                  <span class="pill pill-ghost">Fájl / URL</span>
+          <div class="editor-layout">
+
+            <div class="editor-meta-bar">
+              <input id="dataset-title" type="text" class="meta-input meta-title-input" placeholder="Feladatsor neve…" />
+              <textarea id="dataset-description" rows="2" class="meta-input meta-desc-input" placeholder="Rövid leírás (opcionális)…"></textarea>
+            </div>
+
+            <div class="add-card" id="add-card">
+              <div class="add-card-top">
+                <p class="eyebrow" style="margin:0">Terület hozzáadása</p>
+                <div class="source-tabs-bar" id="source-tabs-bar">
+                  <button class="source-tab active" data-tab="url" type="button">🔗 URL</button>
+                  <button class="source-tab" data-tab="file" type="button">📎 Fájl</button>
+                  <button class="source-tab" data-tab="osm" type="button">🌍 OSM</button>
                 </div>
               </div>
-              <div class="form-grid two-col">
+
+              <div class="form-grid">
                 <label>
-                  Terület neve
+                  Terület neve <span class="req-star">*</span>
                   <input id="record-name" type="text" placeholder="Pl.: Balaton" />
                 </label>
                 <label>
-                  Egyedi név (opcionális)
-                  <input id="record-custom-name" type="text" placeholder="Pl.: Balaton (magyar)" />
-                </label>
-                <label>
-                  Adat típusa
-                  <select id="record-format">
-                    <option value="kml">KML</option>
-                    <option value="geojson">GeoJSON</option>
-                  </select>
-                </label>
-                <label>
-                  Adat URL
-                  <input id="record-url" type="url" placeholder="https://.../area.kml vagy .geojson" />
-                </label>
-                <label>
-                  Adat fájl
-                  <input id="record-file" type="file" accept=".kml,.geojson,.json" />
-                </label>
-                <label>
-                  Tolerancia (km)
-                  <input id="record-tolerance" type="number" min="1" step="1" placeholder="Alapértelmezés: 50" />
+                  Egyedi megjelenítési név
+                  <input id="record-custom-name" type="text" placeholder="Pl.: Balaton (tó)" />
                 </label>
               </div>
-              <div class="button-row">
-                <button id="add-record" class="primary">Hozzáadás</button>
-                <button id="cancel-edit" class="hidden">Mégse</button>
-                <button id="clear-records">Lista törlése</button>
-              </div>
-            </div>
 
-            <div class="section-card">
-              <div class="section-header">
-                <div>
-                  <p class="eyebrow">OSM</p>
-                  <h3>Relation import</h3>
-                  <p class="section-subtitle">Adj meg egy relation ID-t, azonnal konvertáljuk GeoJSON-ná és betöltjük.</p>
+              <div id="tab-url" class="tab-pane">
+                <div class="form-grid two-col">
+                  <label>
+                    Formátum
+                    <select id="record-format">
+                      <option value="kml">KML</option>
+                      <option value="geojson">GeoJSON</option>
+                    </select>
+                  </label>
+                  <label>
+                    Adat URL
+                    <input id="record-url" type="url" placeholder="https://…/area.kml" />
+                  </label>
                 </div>
-                <span class="pill pill-ghost">OSM</span>
               </div>
-              <div class="form-grid">
-                <label>
-                  OSM Relation ID
+
+              <div id="tab-file" class="tab-pane hidden">
+                <label class="file-drop-label">
+                  <div class="file-drop-zone" id="file-drop-zone">
+                    <span class="file-drop-icon">📎</span>
+                    <span class="file-drop-text">Kattints vagy húzd ide a fájlt</span>
+                    <span class="file-drop-hint">.kml · .geojson · .json</span>
+                    <input id="record-file" type="file" accept=".kml,.geojson,.json" />
+                  </div>
+                  <span id="file-name-display" class="file-name-display hidden"></span>
+                </label>
+              </div>
+
+              <div id="tab-osm" class="tab-pane hidden">
+                <p class="tab-hint">OSM Relation ID alapján letöltjük és GeoJSON-ná alakítjuk a területet.</p>
+                <div class="osm-input-row">
                   <input id="osm-relation-id" type="number" placeholder="Pl.: 123924" />
-                </label>
+                  <button id="osm-relation-import" type="button">Lekérés</button>
+                </div>
               </div>
-              <div class="button-row">
-                <button id="osm-relation-import">Relation import</button>
+
+              <div class="add-card-bottom">
+                <label class="tolerance-row">
+                  <span>Tűrési kör <abbr title="Ennyi km-en belüli kattintás helyes. Alapért.: 50 km">ⓘ</abbr></span>
+                  <span class="tolerance-field">
+                    <input id="record-tolerance" type="number" min="0" step="1" placeholder="50" />
+                    <span class="tolerance-unit">km</span>
+                  </span>
+                </label>
+                <div class="add-actions">
+                  <button id="add-record" class="primary" type="button">Hozzáadás</button>
+                  <button id="cancel-edit" type="button" class="hidden">Mégse</button>
+                </div>
               </div>
             </div>
 
-            <div class="section-card subtle">
-              <div class="section-header">
-                <div>
-                  <p class="eyebrow">Adatbázis</p>
-                  <h3>Feladatok</h3>
-                  <p class="section-subtitle">Kattints a megjelenítéshez vagy töröld, ha nem kell. A JSON-t bármikor elmentheted.</p>
-                </div>
-                <div class="pill pill-ghost"><span id="record-count">0</span> tétel</div>
+            <div class="records-section">
+              <div class="records-header">
+                <span class="records-title">Feladatok</span>
+                <span class="pill pill-ghost"><span id="record-count">0</span> tétel</span>
               </div>
-              <div class="dataset-meta">
-                <label>
-                  Feladatsor címe
-                  <input id="dataset-title" type="text" placeholder="Pl.: Európa fővárosai" />
-                </label>
-                <label>
-                  Feladatsor leírása
-                  <textarea id="dataset-description" rows="2" placeholder="Pl.: Európai fővárosok gyakorló csomag"></textarea>
-                </label>
+              <div id="record-empty" class="record-empty">
+                <div class="record-empty-icon">🗺️</div>
+                <p class="record-empty-title">Még nincs elem</p>
+                <p class="record-empty-hint">Adj hozzá területet URL-lel, fájllal vagy OSM azonosítóval</p>
               </div>
               <ul id="record-list" class="record-list"></ul>
-              <div class="button-row">
-                <button id="save-json">JSON mentés</button>
+            </div>
+
+            <div class="editor-footer">
+              <div class="editor-footer-start">
+                <button id="save-json" type="button">💾 Mentés</button>
                 <label class="file-button">
-                  JSON betöltés
+                  📂 Betöltés
                   <input id="load-json" type="file" accept="application/json" />
                 </label>
               </div>
+              <div class="editor-footer-end">
+                <button id="clear-records" type="button" class="editor-clear-btn">🗑 Töröl</button>
+                <button id="editor-play" type="button" class="primary">▶ Játék</button>
+              </div>
             </div>
+
           </div>
         </section>
 
@@ -476,22 +484,24 @@ const updateNav = (mode: 'editor' | 'player') => {
 const refreshList = () => {
   if (!recordList) return
   if (recordCount) recordCount.textContent = String(db.length)
+  const emptyState = document.querySelector<HTMLDivElement>('#record-empty')
+  if (emptyState) emptyState.classList.toggle('hidden', db.length > 0)
   recordList.innerHTML = ''
   db.forEach((record) => {
     const shownName = displayName(record)
     const subtitleParts = [record.format.toUpperCase(), record.dataType === 'url' ? 'URL' : 'Fájl']
-    if (record.toleranceKm) subtitleParts.push(`${record.toleranceKm} km`)
+    if (record.toleranceKm !== undefined) subtitleParts.push(`${record.toleranceKm} km`)
     const item = document.createElement('li')
     item.className = 'record-item'
     item.innerHTML = `
-      <div>
+      <div class="record-item-info">
         <strong>${shownName}</strong>
         <small>${subtitleParts.join(' · ')}</small>
       </div>
       <div class="record-actions">
-        <button data-action="edit" data-id="${record.id}">Szerkesztés</button>
-        <button data-action="show" data-id="${record.id}">Megjelenítés</button>
-        <button data-action="remove" data-id="${record.id}">Törlés</button>
+        <button data-action="edit" data-id="${record.id}" class="icon-btn" title="Szerkesztés" aria-label="Szerkesztés">✏️</button>
+        <button data-action="show" data-id="${record.id}" class="icon-btn" title="Megjelenítés" aria-label="Megjelenítés">👁</button>
+        <button data-action="remove" data-id="${record.id}" class="icon-btn icon-btn--danger" title="Törlés" aria-label="Törlés">🗑</button>
       </div>
     `
     recordList.appendChild(item)
@@ -841,6 +851,18 @@ const playSound = (name: SoundName, volume = 1) => {
   }
 }
 
+const switchSourceTab = (tabName: string) => {
+  document.querySelectorAll<HTMLButtonElement>('.source-tab').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.tab === tabName)
+  })
+  ;['url', 'file', 'osm'].forEach((name) => {
+    const pane = document.getElementById(`tab-${name}`)
+    if (pane) pane.classList.toggle('hidden', name !== tabName)
+  })
+  const addActions = document.querySelector<HTMLDivElement>('.add-actions')
+  if (addActions) addActions.classList.toggle('hidden', tabName === 'osm')
+}
+
 const resetForm = () => {
   if (recordName) recordName.value = ''
   if (recordCustomName) recordCustomName.value = ''
@@ -851,6 +873,11 @@ const resetForm = () => {
   if (addRecordButton) addRecordButton.textContent = 'Hozzáadás'
   cancelEditButton?.classList.add('hidden')
   if (recordFormat) recordFormat.value = 'kml'
+  const fileDisplay = document.getElementById('file-name-display')
+  if (fileDisplay) fileDisplay.classList.add('hidden')
+  const dropZone = document.getElementById('file-drop-zone')
+  if (dropZone) dropZone.classList.remove('has-file')
+  switchSourceTab('url')
 }
 
 const getToleranceKm = (record: AreaRecord) =>
@@ -1729,9 +1756,19 @@ recordList?.addEventListener('click', async (event) => {
     if (recordName) recordName.value = record.name
     if (recordCustomName) recordCustomName.value = record.customName ?? ''
     if (recordFormat) recordFormat.value = record.format
-    if (recordUrl) recordUrl.value = record.dataType === 'url' ? record.data : ''
-    if (recordFile) recordFile.value = ''
     if (recordTolerance) recordTolerance.value = record.toleranceKm?.toString() ?? ''
+    if (record.dataType === 'url') {
+      switchSourceTab('url')
+      if (recordUrl) recordUrl.value = record.data
+    } else {
+      switchSourceTab('file')
+      if (recordUrl) recordUrl.value = ''
+      if (recordFile) recordFile.value = ''
+      const fileDisplay = document.getElementById('file-name-display')
+      if (fileDisplay) { fileDisplay.textContent = '📄 (betöltött fájl)'; fileDisplay.classList.remove('hidden') }
+      const dropZone = document.getElementById('file-drop-zone')
+      if (dropZone) dropZone.classList.add('has-file')
+    }
     if (addRecordButton) addRecordButton.textContent = 'Mentés'
     cancelEditButton?.classList.remove('hidden')
     setFeedback('Szerkesztés mód: módosítsd és ments.', 'neutral')
@@ -1849,3 +1886,27 @@ osmRelationImportButton?.addEventListener('click', async () => {
     console.error(message)
   }
 })
+
+// Source tab switching
+document.querySelectorAll<HTMLButtonElement>('.source-tab').forEach((btn) => {
+  btn.addEventListener('click', () => switchSourceTab(btn.dataset.tab ?? 'url'))
+})
+
+// File drop zone: show filename + auto-detect format
+recordFile?.addEventListener('change', () => {
+  const file = recordFile.files?.[0]
+  const fileDisplay = document.getElementById('file-name-display')
+  const dropZone = document.getElementById('file-drop-zone')
+  if (file) {
+    if (fileDisplay) { fileDisplay.textContent = `📄 ${file.name}`; fileDisplay.classList.remove('hidden') }
+    if (dropZone) dropZone.classList.add('has-file')
+    const ext = file.name.split('.').pop()?.toLowerCase()
+    if (recordFormat) recordFormat.value = (ext === 'geojson' || ext === 'json') ? 'geojson' : 'kml'
+  } else {
+    if (fileDisplay) fileDisplay.classList.add('hidden')
+    if (dropZone) dropZone.classList.remove('has-file')
+  }
+})
+
+// Editor → switch to player view
+document.querySelector<HTMLButtonElement>('#editor-play')?.addEventListener('click', () => updateNav('player'))

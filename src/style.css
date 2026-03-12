@@ -848,7 +848,386 @@ button:hover,
 }
 
 .hidden {
-  display: none;
+  display: none !important;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   EDITOR LAYOUT
+═══════════════════════════════════════════════════════════ */
+
+.editor-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-height: 100%;
+}
+
+/* ── Dataset meta bar ──────────────────────────────────── */
+
+.editor-meta-bar {
+  display: grid;
+  gap: 0.35rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid #e3e8ff;
+}
+
+.meta-input {
+  border: none;
+  border-bottom: 2px solid #e3e8ff;
+  border-radius: 0;
+  background: transparent;
+  padding: 0.3rem 0.1rem;
+  font-family: inherit;
+  width: 100%;
+  transition: border-color 0.18s;
+  color: #0f172a;
+}
+
+.meta-title-input {
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.meta-title-input::placeholder { color: #94a3b8; font-weight: 400; }
+
+.meta-desc-input {
+  font-size: 0.88rem;
+  color: #475569;
+  resize: none;
+  min-height: 38px;
+}
+
+.meta-input:focus {
+  outline: none;
+  border-bottom-color: #2563eb;
+}
+
+/* ── Add card ──────────────────────────────────────────── */
+
+.add-card {
+  background: linear-gradient(135deg, rgba(90, 215, 255, 0.08), rgba(99, 102, 241, 0.05)), #fff;
+  border: 1px solid #c7d2fe;
+  border-radius: 1rem;
+  padding: 0.85rem 1rem;
+  display: grid;
+  gap: 0.65rem;
+}
+
+.add-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+/* ── Source tabs ───────────────────────────────────────── */
+
+.source-tabs-bar {
+  display: flex;
+  gap: 0.2rem;
+  background: rgba(15, 23, 42, 0.07);
+  border-radius: 0.6rem;
+  padding: 0.18rem;
+}
+
+.source-tab {
+  flex: 1;
+  padding: 0.28rem 0.55rem;
+  border-radius: 0.45rem;
+  border: none;
+  background: transparent;
+  color: #475569;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, box-shadow 0.15s;
+  white-space: nowrap;
+}
+
+.source-tab.active {
+  background: #fff;
+  color: #2563eb;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.12);
+}
+
+/* ── Tab panes ─────────────────────────────────────────── */
+
+.tab-pane {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.tab-hint {
+  margin: 0;
+  font-size: 0.82rem;
+  color: #64748b;
+}
+
+/* ── File drop zone ────────────────────────────────────── */
+
+.file-drop-label {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.file-drop-zone {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
+  padding: 1.1rem 0.75rem;
+  border: 2px dashed #cbd5f5;
+  border-radius: 0.75rem;
+  background: rgba(241, 245, 255, 0.6);
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+  text-align: center;
+  overflow: hidden;
+}
+
+.file-drop-zone:hover,
+.file-drop-zone:focus-within {
+  border-color: #2563eb;
+  background: rgba(219, 234, 254, 0.4);
+}
+
+.file-drop-zone.has-file {
+  border-color: #22c55e;
+  background: rgba(220, 252, 231, 0.35);
+}
+
+.file-drop-zone input[type="file"] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+  width: 100%;
+  height: 100%;
+}
+
+.file-drop-icon { font-size: 1.5rem; line-height: 1; }
+
+.file-drop-text {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #334155;
+}
+
+.file-drop-hint {
+  font-size: 0.75rem;
+  color: #94a3b8;
+}
+
+.file-name-display {
+  font-size: 0.82rem;
+  color: #15803d;
+  font-weight: 600;
+  padding: 0.2rem 0.55rem;
+  background: #dcfce7;
+  border-radius: 0.4rem;
+  display: inline-block;
+}
+
+/* ── OSM input row ─────────────────────────────────────── */
+
+.osm-input-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.5rem;
+  align-items: end;
+}
+
+.osm-input-row input {
+  padding: 0.48rem 0.75rem;
+  border: 1px solid #cbd5f5;
+  border-radius: 0.5rem;
+  font-size: 0.9rem;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+/* ── Add card bottom (tolerance + actions) ─────────────── */
+
+.add-card-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  padding-top: 0.55rem;
+  border-top: 1px solid #e3e8ff;
+}
+
+.tolerance-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: #475569;
+  flex-wrap: wrap;
+}
+
+.tolerance-field {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.tolerance-field input {
+  width: 62px;
+  padding: 0.32rem 0.45rem;
+  border: 1px solid #cbd5f5;
+  border-radius: 0.45rem;
+  font-size: 0.88rem;
+  text-align: right;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.tolerance-unit {
+  font-size: 0.8rem;
+  color: #94a3b8;
+}
+
+.req-star { color: #ef4444; margin-left: 0.1rem; }
+
+abbr[title] {
+  cursor: help;
+  text-decoration: underline dotted;
+  color: #64748b;
+  font-size: 0.85em;
+}
+
+.add-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+/* ── Records section ───────────────────────────────────── */
+
+.records-section {
+  flex: 1;
+}
+
+.records-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.55rem;
+}
+
+.records-title {
+  font-weight: 700;
+  font-size: 0.92rem;
+  color: #0f172a;
+}
+
+/* ── Empty state ───────────────────────────────────────── */
+
+.record-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 2rem 1rem;
+  border: 2px dashed #e3e8ff;
+  border-radius: 0.75rem;
+  color: #94a3b8;
+  margin-bottom: 0.5rem;
+}
+
+
+.record-empty-icon {
+  font-size: 2.2rem;
+  line-height: 1;
+  margin-bottom: 0.5rem;
+}
+
+.record-empty-title {
+  margin: 0 0 0.2rem;
+  font-weight: 600;
+  color: #64748b;
+  font-size: 0.92rem;
+}
+
+.record-empty-hint {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #94a3b8;
+}
+
+/* ── Icon buttons on record items ─────────────────────── */
+
+.record-item-info { flex: 1; min-width: 0; }
+
+.icon-btn {
+  width: 1.9rem;
+  height: 1.9rem;
+  padding: 0;
+  border-radius: 0.45rem;
+  border: 1px solid transparent;
+  background: transparent;
+  font-size: 0.9rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+  opacity: 0;
+}
+
+.record-item:hover .icon-btn,
+.record-item:focus-within .icon-btn {
+  opacity: 1;
+}
+
+.icon-btn:hover {
+  background: #f1f5f9;
+  border-color: #e2e8f0;
+}
+
+.icon-btn--danger:hover {
+  background: #fee2e2;
+  border-color: #fca5a5;
+}
+
+/* ── Editor footer (sticky) ────────────────────────────── */
+
+.editor-footer {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.65rem 0 0.4rem;
+  margin-top: auto;
+  background: linear-gradient(to top, rgba(255,255,255,1) 70%, rgba(255,255,255,0));
+  border-top: 1px solid #e3e8ff;
+  z-index: 2;
+}
+
+.editor-footer-start,
+.editor-footer-end {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.editor-clear-btn {
+  background: transparent;
+  border-color: #fca5a5;
+  color: #b91c1c;
+  font-size: 0.82rem;
+  padding: 0.35rem 0.6rem;
+}
+
+.editor-clear-btn:hover {
+  background: #fee2e2;
+  transform: none;
+  box-shadow: none;
 }
 
 @media (max-width: 900px) {
