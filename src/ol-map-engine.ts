@@ -361,49 +361,9 @@ export class OLMapEngine implements MapEngine {
   // Arrow overlay
   // ---------------------------------------------------------------------------
 
-  showArrow(from: LonLat, to: LonLat, distanceKm: number): void {
+  showArrow(from: LonLat, to: LonLat, _distanceKm: number): void {
     this.clearArrow()
 
-    // Build a small arrow canvas
-    const canvas = document.createElement('canvas')
-    canvas.width = 200
-    canvas.height = 52
-    const ctx = canvas.getContext('2d')!
-
-    // Arrow line
-    ctx.strokeStyle = '#f97316'
-    ctx.lineWidth = 4
-    ctx.lineCap = 'round'
-    ctx.beginPath()
-    ctx.moveTo(10, 26)
-    ctx.lineTo(165, 26)
-    ctx.stroke()
-
-    // Arrowhead
-    ctx.fillStyle = '#f97316'
-    ctx.beginPath()
-    ctx.moveTo(190, 26)
-    ctx.lineTo(162, 14)
-    ctx.lineTo(162, 38)
-    ctx.closePath()
-    ctx.fill()
-
-    // Label background
-    const label = `${distanceKm.toFixed(1)} km`
-    ctx.font = 'bold 14px Inter, system-ui, sans-serif'
-    const metrics = ctx.measureText(label)
-    const lw = metrics.width + 14
-    const lh = 22
-    const lx = (canvas.width - lw) / 2
-    const ly = 2
-    ctx.fillStyle = 'rgba(255,255,255,0.93)'
-    ctx.beginPath()
-    ctx.roundRect(lx, ly, lw, lh, 5)
-    ctx.fill()
-    ctx.fillStyle = '#0f172a'
-    ctx.fillText(label, lx + 7, ly + 15)
-
-    // Rotate the canvas so the arrow points from `from` toward `to`
     const fromPx = this.map.getPixelFromCoordinate(fromLonLat(from))
     const toPx   = this.map.getPixelFromCoordinate(fromLonLat(to))
 
@@ -412,9 +372,36 @@ export class OLMapEngine implements MapEngine {
       angle = Math.atan2(toPx[1] - fromPx[1], toPx[0] - fromPx[0])
     }
 
+    // Navigation-style compass arrow — game colour palette
+    const uid = `ag${Math.random().toString(36).slice(2)}`
+    // Shape: tail notch at left (x=0), tip at right (x=76).
+    // Path: top-tail → tip → bottom-tail → concave notch → close
+    const svgSrc = `<svg width="40" height="22" viewBox="0 0 80 44" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="${uid}" x1="0" y1="22" x2="80" y2="22" gradientUnits="userSpaceOnUse">
+          <stop stop-color="#5ad7ff"/>
+          <stop offset="1" stop-color="#6366f1"/>
+        </linearGradient>
+        <filter id="${uid}f" x="-25%" y="-55%" width="150%" height="210%">
+          <feDropShadow dx="0" dy="2" stdDeviation="3.5" flood-color="#0f172a" flood-opacity="0.55"/>
+        </filter>
+      </defs>
+      <!-- white outline + drop shadow for legibility -->
+      <path d="M0,4 L78,22 L0,40 L14,22 Z"
+            fill="white" stroke="white" stroke-width="5" stroke-linejoin="round"
+            filter="url(#${uid}f)"/>
+      <!-- game-colour gradient fill -->
+      <path d="M0,4 L78,22 L0,40 L14,22 Z"
+            fill="url(#${uid})"/>
+    </svg>`
+
+    const img = document.createElement('img')
+    img.src = `data:image/svg+xml,${encodeURIComponent(svgSrc)}`
+    img.style.cssText = 'display:block;pointer-events:none;'
+
     const el = document.createElement('div')
-    el.style.cssText = `transform: rotate(${angle}rad); transform-origin: left center; pointer-events: none;`
-    el.appendChild(canvas)
+    el.style.cssText = `transform:rotate(${angle}rad);transform-origin:0 50%;pointer-events:none;`
+    el.appendChild(img)
 
     this.arrowOverlay = new Overlay({
       element: el,

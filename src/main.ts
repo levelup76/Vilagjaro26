@@ -788,7 +788,6 @@ const handlePinsAttempt = async (
       playSound('wrong')
       if (targetCenter) {
         const dir = cardinal(bearingDegrees(clickPoint, targetCenter))
-        engine.setGuessPin(clickPoint, `${dir} · ${distance.toFixed(1)} km`)
         engine.showArrow(clickPoint, targetCenter, distance)
         setFeedback(`Mellé. ${distance.toFixed(1)} km · ${dir}`, 'bad')
       } else {
