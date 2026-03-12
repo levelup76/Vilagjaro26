@@ -1,0 +1,22 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir":                   "./dist/lib",
+    "declaration":              true,
+    "declarationDir":           "./dist/lib",
+    "emitDeclarationOnly":      true,
+    "rootDir":                  "./src",
+    "noEmit":                   false,
+    "allowImportingTsExtensions": false,
+    "moduleResolution":         "node"
+  },
+  "include": [
+    "src/vilagjaro-adapter.ts",
+    "src/ol-map-engine.ts",
+    "src/map-engine.ts"
+  ],
+  "exclude": [
+    "src/main.ts",
+    "src/counter.ts"
+  ]
+}
